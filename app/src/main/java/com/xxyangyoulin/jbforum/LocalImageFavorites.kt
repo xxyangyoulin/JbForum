@@ -101,6 +101,15 @@ object LocalImageFavorites {
         }
     }
 
+    suspend fun clearAll() {
+        remove(load().map { it.id }.toSet())
+        save(emptyList())
+    }
+
+    fun replaceAllFromBackup(items: List<LocalFavoriteImage>) {
+        save(items)
+    }
+
     suspend fun ensureThumbnail(item: LocalFavoriteImage): String? {
         return withContext(Dispatchers.IO) {
             val sourceFile = File(item.filePath)

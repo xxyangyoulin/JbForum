@@ -408,6 +408,7 @@ class SettingsActivity : ComponentActivity() {
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
+        LocalLinkFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
         setContent {
@@ -476,6 +477,14 @@ private fun ForumApp(viewModel: MainViewModel) {
                                 onDismissRequest = { topMenuExpanded = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("搜索") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        searchDialogOpen = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("浏览历史") },
                                     onClick = {
                                         topMenuExpanded = false
@@ -483,33 +492,6 @@ private fun ForumApp(viewModel: MainViewModel) {
                                         historyPanelOpen = true
                                     },
                                     leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
-                                )
-                                if (state.session == null) {
-                                    DropdownMenuItem(
-                                        text = { Text("登录") },
-                                        onClick = {
-                                            topMenuExpanded = false
-                                            viewModel.prepareLogin()
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("个人中心") },
-                                    onClick = {
-                                        topMenuExpanded = false
-                                        context.startActivity(UserCenterActivity.createIntent(context))
-                                    },
-                                    enabled = state.session != null,
-                                    leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("搜索") },
-                                    onClick = {
-                                        topMenuExpanded = false
-                                        searchDialogOpen = true
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("本地收藏") },
@@ -521,6 +503,15 @@ private fun ForumApp(viewModel: MainViewModel) {
                                     leadingIcon = { Icon(Icons.Default.Collections, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("个人中心") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        context.startActivity(UserCenterActivity.createIntent(context))
+                                    },
+                                    enabled = state.session != null,
+                                    leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("设置") },
                                     onClick = {
                                         topMenuExpanded = false
@@ -528,6 +519,16 @@ private fun ForumApp(viewModel: MainViewModel) {
                                     },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
                                 )
+                                if (state.session == null) {
+                                    DropdownMenuItem(
+                                        text = { Text("登录") },
+                                        onClick = {
+                                            topMenuExpanded = false
+                                            viewModel.prepareLogin()
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -635,6 +636,7 @@ private fun ThreadsActivityScreen(
     val imageLoader = rememberForumImageLoader()
     val imageDownloadClient = rememberForumImageDownloadClient()
     var topMenuExpanded by remember { mutableStateOf(false) }
+    var searchDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -656,9 +658,20 @@ private fun ThreadsActivityScreen(
 
     LaunchedEffect(boardUrl, searchKeyword) {
         if (!searchKeyword.isNullOrBlank()) {
-            viewModel.searchThreads(searchKeyword)
+            val hasCachedSearch =
+                state.selectedBoard?.title == "搜索：$searchKeyword" &&
+                    state.selectedBoard?.url?.contains("search.php?mod=forum") == true &&
+                    state.threads.isNotEmpty()
+            if (!hasCachedSearch) {
+                viewModel.searchThreads(searchKeyword)
+            }
         } else if (boardUrl.isNotBlank()) {
-            viewModel.openBoard(Board(boardTitle, boardDescription, boardUrl))
+            val hasCachedBoard =
+                state.selectedBoard?.url == boardUrl &&
+                    state.threads.isNotEmpty()
+            if (!hasCachedBoard) {
+                viewModel.openBoard(Board(boardTitle, boardDescription, boardUrl))
+            }
         }
     }
 
@@ -701,6 +714,14 @@ private fun ThreadsActivityScreen(
                             onDismissRequest = { topMenuExpanded = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("搜索") },
+                                onClick = {
+                                    topMenuExpanded = false
+                                    searchDialogOpen = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("浏览历史") },
                                 onClick = {
                                     topMenuExpanded = false
@@ -710,6 +731,14 @@ private fun ThreadsActivityScreen(
                                 leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
                             )
                             DropdownMenuItem(
+                                text = { Text("本地收藏") },
+                                onClick = {
+                                    topMenuExpanded = false
+                                    context.startActivity(LocalFavoritesActivity.createIntent(context))
+                                },
+                                leadingIcon = { Icon(Icons.Default.Collections, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("个人中心") },
                                 onClick = {
                                     topMenuExpanded = false
@@ -717,14 +746,6 @@ private fun ThreadsActivityScreen(
                                 },
                                 enabled = state.session != null,
                                 leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("本地收藏") },
-                                onClick = {
-                                    topMenuExpanded = false
-                                    context.startActivity(LocalFavoritesActivity.createIntent(context))
-                                },
-                                leadingIcon = { Icon(Icons.Default.Collections, contentDescription = null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("设置") },
@@ -820,6 +841,16 @@ private fun ThreadsActivityScreen(
             form = state.composeForm!!,
             onDismiss = viewModel::clearCompose,
             onSubmit = viewModel::submitNewThread
+        )
+    }
+
+    if (searchDialogOpen) {
+        SearchDialog(
+            onDismiss = { searchDialogOpen = false },
+            onSearch = {
+                searchDialogOpen = false
+                context.startActivity(ThreadsActivity.createSearchIntent(context, it))
+            }
         )
     }
 }
@@ -2437,6 +2468,19 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching { BackupManager.importFromUri(context, uri) }
+                .onSuccess {
+                    onCacheCleared()
+                    Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(context, it.message ?: "导入失败", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
     var stats by remember { mutableStateOf(CacheStats(0L, 0L)) }
     var loading by remember { mutableStateOf(true) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -2528,6 +2572,24 @@ private fun SettingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("清除缓存", color = TitleText)
+        }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    runCatching { BackupManager.exportToDownloads(context) }
+                        .onSuccess { Toast.makeText(context, "导出成功：$it", Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_SHORT).show() }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("导出备份", color = TitleText)
+        }
+        OutlinedButton(
+            onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("导入备份", color = TitleText)
         }
         if (loggedIn) {
             OutlinedButton(

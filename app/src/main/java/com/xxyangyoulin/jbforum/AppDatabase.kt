@@ -39,6 +39,9 @@ interface LinkFavoriteDao {
 
     @Query("DELETE FROM link_favorites WHERE id IN (:ids)")
     fun deleteByIds(ids: List<String>)
+
+    @Query("DELETE FROM link_favorites")
+    fun clearAll()
 }
 
 @Dao

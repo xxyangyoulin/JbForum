@@ -89,6 +89,27 @@ object LocalLinkFavorites {
         }
     }
 
+    fun replaceAll(items: List<LocalFavoriteLink>) {
+        val dbDao = dao ?: return
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                dbDao.clearAll()
+                items.forEach { item ->
+                    dbDao.upsert(
+                        LinkFavoriteEntity(
+                            id = item.id,
+                            value = item.value,
+                            type = item.type,
+                            savedAt = item.savedAt,
+                            sourceThreadTitle = item.sourceThreadTitle,
+                            sourceThreadUrl = item.sourceThreadUrl
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     private fun decode(raw: String): LocalFavoriteLink? {
         val parts = raw.split("||")
         if (parts.size != 6) return null

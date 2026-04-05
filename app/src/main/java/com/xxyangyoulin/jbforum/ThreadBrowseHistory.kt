@@ -78,6 +78,26 @@ object ThreadBrowseHistory {
         }
     }
 
+    fun replaceAll(items: List<ThreadHistoryItem>) {
+        val dbDao = dao ?: return
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                dbDao.clearAll()
+                items.sortedByDescending { it.viewedAt }.take(maxItems).forEach { item ->
+                    dbDao.upsert(
+                        ThreadHistoryEntity(
+                            url = item.url,
+                            id = item.id,
+                            title = item.title,
+                            viewedAt = item.viewedAt
+                        )
+                    )
+                }
+                dbDao.trimTo(maxItems)
+            }
+        }
+    }
+
     private fun decode(raw: String): ThreadHistoryItem? {
         val parts = raw.split("||")
         if (parts.size != 4) return null

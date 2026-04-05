@@ -44,12 +44,26 @@ data class AppState(
 class MainViewModel(
     private val repository: ForumRepository = ForumRepository()
 ) : ViewModel() {
-    private val _state = MutableStateFlow(AppState())
+    private val _state = MutableStateFlow(AppStateSnapshot.restore() ?: AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            _state.collect { current ->
+                AppStateSnapshot.save(
+                    current.copy(
+                        loading = false,
+                        threadRefreshing = false,
+                        message = null,
+                        challenge = null,
+                        composeForm = null,
+                        remarkForm = null
+                    )
+                )
+            }
+        }
         launchTask {
-            _state.update { it.copy(loading = true, message = null, selectedBoard = null, selectedThread = null, threadDetail = null, detectedLinks = emptyList()) }
+            _state.update { it.copy(loading = true, message = null) }
             val boards = repository.loadBoards()
             val session = repository.currentSession()
             _state.update { it.copy(boards = boards, session = session, localFavoriteImages = LocalImageFavorites.load(), loading = false) }
@@ -445,5 +459,16 @@ class MainViewModel(
                 _state.update { it.copy(loading = false, message = t.message ?: "操作失败") }
             }
         }
+    }
+}
+
+private object AppStateSnapshot {
+    @Volatile
+    private var cached: AppState? = null
+
+    fun restore(): AppState? = cached
+
+    fun save(state: AppState) {
+        cached = state
     }
 }
