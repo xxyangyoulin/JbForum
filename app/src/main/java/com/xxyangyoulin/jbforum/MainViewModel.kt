@@ -80,10 +80,25 @@ class MainViewModel(
         _state.update { it.copy(boards = boards, loading = false) }
     }
 
-    fun openBoard(board: Board) = launchTask {
-        _state.update { it.copy(loading = true, selectedBoard = board, selectedThread = null, threadDetail = null, detectedLinks = emptyList(), message = null) }
-        val page = repository.loadThreads(board.url)
-        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+    fun openBoard(board: Board, forceRefresh: Boolean = false) = launchTask {
+        val cached = boardCache[board.url]
+        _state.update {
+            it.copy(
+                loading = cached == null || forceRefresh,
+                threads = cached?.threads ?: emptyList(),
+                threadsNextPageUrl = cached?.nextPageUrl,
+                selectedBoard = board,
+                selectedThread = null,
+                threadDetail = null,
+                detectedLinks = emptyList(),
+                message = null
+            )
+        }
+        if (cached == null || forceRefresh) {
+            val page = repository.loadThreads(board.url)
+            boardCache[board.url] = BoardCache(page.threads, page.nextPageUrl)
+            _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+        }
     }
 
     fun searchThreads(keyword: String) = launchTask {
@@ -109,23 +124,27 @@ class MainViewModel(
 
     fun openThread(thread: ThreadSummary) = launchTask {
         val openedFromUserCenter = state.value.userCenterVisible
-        val isRefresh = state.value.threadDetail != null && state.value.selectedThread?.url == thread.url
+        val cached = threadDetailCache[thread.url]
         _state.update {
             it.copy(
-                loading = !isRefresh,
-                threadRefreshing = isRefresh,
+                loading = cached == null,
+                threadRefreshing = cached != null,
                 selectedThread = thread,
                 userCenterVisible = false,
                 threadOpenedFromUserCenter = openedFromUserCenter,
                 remarkForm = null,
-                message = null
+                message = null,
+                threadDetail = cached?.detail,
+                detectedLinks = cached?.detectedLinks ?: emptyList()
             )
         }
         val detail = repository.loadThread(thread.url)
+        val links = ThreadLinkRecognizer.extract(detail)
+        threadDetailCache[thread.url] = ThreadDetailCache(detail, links)
         _state.update {
             it.copy(
                 threadDetail = detail,
-                detectedLinks = ThreadLinkRecognizer.extract(detail),
+                detectedLinks = links,
                 loading = false,
                 threadRefreshing = false
             )
@@ -216,11 +235,13 @@ class MainViewModel(
         _state.update { it.copy(loading = true, message = null) }
         repository.submitRemark(form, message)
         val refreshed = repository.loadThread(detail.url)
+        val links = ThreadLinkRecognizer.extract(refreshed)
+        threadDetailCache[refreshed.url] = ThreadDetailCache(refreshed, links)
         _state.update {
             it.copy(
                 remarkForm = null,
                 threadDetail = refreshed,
-                detectedLinks = ThreadLinkRecognizer.extract(refreshed),
+                detectedLinks = links,
                 loading = false,
                 message = "点评已提交"
             )
@@ -238,11 +259,13 @@ class MainViewModel(
             currentPage = nextPage.currentPage,
             totalPages = nextPage.totalPages
         )
+        val links = ThreadLinkRecognizer.extract(mergedDetail)
+        threadDetailCache[mergedDetail.url] = ThreadDetailCache(mergedDetail, links)
         _state.update {
             it.copy(
                 loading = false,
                 threadDetail = mergedDetail,
-                detectedLinks = ThreadLinkRecognizer.extract(mergedDetail)
+                detectedLinks = links
             )
         }
     }
@@ -252,11 +275,13 @@ class MainViewModel(
         _state.update { it.copy(loading = true, message = null) }
         repository.favoriteThread(detail)
         val refreshed = repository.loadThread(detail.url)
+        val links = ThreadLinkRecognizer.extract(refreshed)
+        threadDetailCache[refreshed.url] = ThreadDetailCache(refreshed, links)
         _state.update {
             it.copy(
                 loading = false,
                 threadDetail = refreshed,
-                detectedLinks = ThreadLinkRecognizer.extract(refreshed),
+                detectedLinks = links,
                 message = "收藏成功"
             )
         }
@@ -474,5 +499,28 @@ private object AppStateSnapshot {
 
     fun save(state: AppState) {
         cached = state
+    }
+}
+
+private data class BoardCache(
+    val threads: List<ThreadSummary>,
+    val nextPageUrl: String?
+)
+
+private data class ThreadDetailCache(
+    val detail: ThreadDetail,
+    val detectedLinks: List<DetectedLink>
+)
+
+private const val THREAD_DETAIL_CACHE_LIMIT = 20
+
+private val boardCache = object : LinkedHashMap<String, BoardCache>(16, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BoardCache>?): Boolean {
+        return size > 20
+    }
+}
+private val threadDetailCache = object : LinkedHashMap<String, ThreadDetailCache>(16, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ThreadDetailCache>?): Boolean {
+        return size > THREAD_DETAIL_CACHE_LIMIT
     }
 }
