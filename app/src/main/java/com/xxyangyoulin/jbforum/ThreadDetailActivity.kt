@@ -8,6 +8,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +38,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
@@ -56,6 +63,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -92,12 +100,23 @@ import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
+import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 import com.xxyangyoulin.jbforum.util.openThreadByPreference
 import kotlin.math.roundToInt
+
+private val ThreadPostAvatarSize = 28.dp
+private val ThreadPostHeaderGap = 10.dp
+private val ThreadPostContentIndent = ThreadPostAvatarSize + ThreadPostHeaderGap
+private val ThreadDetailHorizontalPadding = 15.dp
+private val ThreadDetailTitlePadding = 15.dp
+private val ThreadDetailSectionSpacing = 10.dp
+private val ThreadDetailImageVerticalPadding = 5.dp
+private val ThreadDetailRemarksTopSpacing = 12.dp
+private val ThreadDetailFooterTopSpacing = 14.dp
 
 class ThreadDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,6 +132,9 @@ class ThreadDetailActivity : ComponentActivity() {
             id = intent.getStringExtra(EXTRA_THREAD_ID).orEmpty(),
             title = intent.getStringExtra(EXTRA_THREAD_TITLE).orEmpty(),
             author = intent.getStringExtra(EXTRA_THREAD_AUTHOR).orEmpty(),
+            authorUid = intent.getStringExtra(EXTRA_THREAD_AUTHOR_UID).orEmpty(),
+            authorAvatarUrl = intent.getStringExtra(EXTRA_THREAD_AUTHOR_AVATAR_URL).orEmpty().ifBlank { null },
+            publishedAt = intent.getStringExtra(EXTRA_THREAD_PUBLISHED_AT).orEmpty(),
             url = intent.getStringExtra(EXTRA_THREAD_URL).orEmpty()
         )
         setContent {
@@ -131,6 +153,9 @@ class ThreadDetailActivity : ComponentActivity() {
         private const val EXTRA_THREAD_ID = "thread_id"
         private const val EXTRA_THREAD_TITLE = "thread_title"
         private const val EXTRA_THREAD_AUTHOR = "thread_author"
+        private const val EXTRA_THREAD_AUTHOR_UID = "thread_author_uid"
+        private const val EXTRA_THREAD_AUTHOR_AVATAR_URL = "thread_author_avatar_url"
+        private const val EXTRA_THREAD_PUBLISHED_AT = "thread_published_at"
         private const val EXTRA_THREAD_URL = "thread_url"
 
         fun createIntent(context: android.content.Context, thread: ThreadSummary): android.content.Intent {
@@ -138,6 +163,9 @@ class ThreadDetailActivity : ComponentActivity() {
                 putExtra(EXTRA_THREAD_ID, thread.id)
                 putExtra(EXTRA_THREAD_TITLE, thread.title)
                 putExtra(EXTRA_THREAD_AUTHOR, thread.author)
+                putExtra(EXTRA_THREAD_AUTHOR_UID, thread.authorUid)
+                putExtra(EXTRA_THREAD_AUTHOR_AVATAR_URL, thread.authorAvatarUrl)
+                putExtra(EXTRA_THREAD_PUBLISHED_AT, thread.publishedAt)
                 putExtra(EXTRA_THREAD_URL, thread.url)
             }
         }
@@ -158,6 +186,7 @@ internal fun ThreadDetailActivityScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var replyDialogOpen by remember { mutableStateOf(false) }
     var detailMenuExpanded by remember { mutableStateOf(false) }
+    var hideFloatingButtons by remember { mutableStateOf(false) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let { data ->
             if (data.getBooleanExtra(ImagePreviewActivity.EXTRA_REFRESH_FAVORITES, false)) {
@@ -188,6 +217,9 @@ internal fun ThreadDetailActivityScreen(
         viewModel.closeThread()
         onBack()
     }
+    val openUserCenter: (String) -> Unit = { uid ->
+        context.startActivity(UserCenterActivity.createIntent(context, uid))
+    }
 
     LaunchedEffect(thread.url) {
         if (thread.url.isNotBlank()) viewModel.openThread(thread)
@@ -210,6 +242,15 @@ internal fun ThreadDetailActivityScreen(
 
     BackHandler(onBack = handleBack)
 
+    val topBarDetail = state.threadDetail
+    val topBarPost = topBarDetail?.posts?.firstOrNull()
+    val topBarUid = thread.authorUid.ifBlank {
+        topBarPost?.authorUid?.ifBlank { topBarDetail?.authorUid.orEmpty() }.orEmpty()
+    }
+    val topBarAvatarUrl = thread.authorAvatarUrl ?: topBarPost?.authorAvatarUrl
+    val topBarAuthor = thread.author.ifBlank { topBarDetail?.author.orEmpty() }
+    val topBarPublishedAt = thread.publishedAt.ifBlank { topBarDetail?.publishedAt.orEmpty() }
+
     Scaffold(
         containerColor = AppBackground,
         contentWindowInsets = WindowInsets.navigationBarsIgnoringVisibility,
@@ -222,13 +263,42 @@ internal fun ThreadDetailActivityScreen(
                     scrolledContainerColor = CardBackground
                 ),
                 title = {
-                    Text(
-                        text = state.selectedThread?.title ?: thread.title.ifBlank { "帖子详情" },
-                        maxLines = 1,
-                        color = TitleText,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (topBarAvatarUrl != null || topBarAuthor.isNotBlank() || topBarPublishedAt.isNotBlank()) {
+                            AuthorAvatar(
+                                imageLoader = imageLoader,
+                                imageUrl = topBarAvatarUrl,
+                                name = topBarAuthor,
+                                modifier = if (topBarUid.isNotBlank()) Modifier.clickable { openUserCenter(topBarUid) } else Modifier,
+                                size = 34.dp
+                            )
+                        }
+                        if (topBarAuthor.isNotBlank() || topBarPublishedAt.isNotBlank()) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                if (topBarAuthor.isNotBlank()) {
+                                    Text(
+                                        text = topBarAuthor,
+                                        maxLines = 1,
+                                        color = TitleText,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = if (topBarUid.isNotBlank()) Modifier.clickable { openUserCenter(topBarUid) } else Modifier
+                                    )
+                                }
+                                if (topBarPublishedAt.isNotBlank()) {
+                                    Text(
+                                        text = topBarPublishedAt,
+                                        maxLines = 1,
+                                        color = MutedText,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = handleBack) {
@@ -283,11 +353,13 @@ internal fun ThreadDetailActivityScreen(
         },
         floatingActionButton = {
             val canReply = state.threadDetail?.replyAction != null
-            if (canReply || detectedLinks.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = (canReply || detectedLinks.isNotEmpty()) && !hideFloatingButtons,
+                enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                exit = fadeOut() + scaleOut(targetScale = 0.85f)
+            ) {
                 Column(
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .padding(end = FloatingButtonEdgePadding),
+                    modifier = Modifier.navigationBarsPadding(),
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -345,6 +417,7 @@ internal fun ThreadDetailActivityScreen(
                     )
                 },
                 onLoadMoreReplies = viewModel::loadMoreReplies,
+                onNearBottomChanged = { hideFloatingButtons = it },
                 onRemark = {
                     if (state.session != null) {
                         viewModel.prepareRemark(it)
@@ -460,6 +533,7 @@ internal fun ThreadDetailScreen(
     onOpenUserCenter: (String) -> Unit,
     onOpenImage: (List<String>, Int, PreviewLaunchSource?) -> Unit,
     onLoadMoreReplies: () -> Unit,
+    onNearBottomChanged: (Boolean) -> Unit,
     onRemark: (PostItem) -> Unit,
     onFavoriteText: (String, String?) -> Unit
 ) {
@@ -474,6 +548,19 @@ internal fun ThreadDetailScreen(
     val segments = remember(detail.posts) { splitPostSegments(detail.posts) }
     val segmentHeights = remember { mutableStateMapOf<String, Int>() }
     val imageAspectRatios = remember { mutableStateMapOf<String, Float>() }
+    val nearBottom by remember(listState, density) {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+            if (lastVisible.index != listState.layoutInfo.totalItemsCount - 1) return@derivedStateOf false
+            val thresholdPx = with(density) { 20.dp.roundToPx() }
+            val remaining = listState.layoutInfo.viewportEndOffset - (lastVisible.offset + lastVisible.size)
+            remaining <= thresholdPx
+        }
+    }
+
+    LaunchedEffect(nearBottom) {
+        onNearBottomChanged(nearBottom)
+    }
 
     RefreshContainer(
         refreshing = refreshing,
@@ -486,31 +573,19 @@ internal fun ThreadDetailScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-            item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                    border = BorderStroke(1.dp, CardBorder)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CardBackground)
+                            .padding(horizontal = ThreadDetailTitlePadding, vertical = 8.dp)
+                    ) {
                         Text(detail.title, style = MaterialTheme.typography.titleLarge, color = TitleText, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(8.dp))
-                        ClickableName(
-                            name = detail.author,
-                            uid = detail.authorUid,
-                            color = MutedText,
-                            style = MaterialTheme.typography.bodySmall,
-                            suffix = detail.publishedAt.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
-                            onOpenUserCenter = onOpenUserCenter
-                        )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-            }
             items(
                 count = segments.size,
                 key = { i -> "${segments[i].postId}-${segments[i].segmentIndex}" }
@@ -520,22 +595,9 @@ internal fun ThreadDetailScreen(
                 val nextIsSamePost = index < segments.size - 1 && segments[index + 1].postId == segment.postId
                 val isLastOfPost = !nextIsSamePost
 
-                if (!prevIsSamePost) {
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                val topRadius = if (prevIsSamePost) 0.dp else 24.dp
-                val bottomRadius = if (nextIsSamePost) 0.dp else 24.dp
-                val shape = when {
-                    topRadius > 0.dp && bottomRadius > 0.dp -> RoundedCornerShape(24.dp)
-                    topRadius > 0.dp -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-                    bottomRadius > 0.dp -> RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
-                    else -> RoundedCornerShape(0.dp)
-                }
+                val shape = RoundedCornerShape(0.dp)
                 val segKey = "${segment.postId}-${segment.segmentIndex}"
                 val cachedHeight = segmentHeights[segKey]
-
-                val layoutDirection = LocalLayoutDirection.current
 
                 Box(
                     modifier = Modifier
@@ -547,93 +609,37 @@ internal fun ThreadDetailScreen(
                         .onSizeChanged { segmentHeights[segKey] = it.height }
                         .background(CardBackground, shape)
                         .clip(shape)
-                        .drawBehind {
-                            val stroke = 1f.dp.toPx()
-                            val half = stroke / 2
-                            val outline = shape.createOutline(size, layoutDirection, this)
-                            // Draw border as inset path following the exact shape outline
-                            val borderPath = when (outline) {
-                                is Outline.Rectangle -> Path().apply {
-                                    addRect(Rect(half, half, size.width - half, size.height - half))
-                                }
-                                is Outline.Rounded -> Path().apply {
-                                    val rr = outline.roundRect
-                                    addRoundRect(
-                                        RoundRect(
-                                            left = half, top = half,
-                                            right = size.width - half, bottom = size.height - half,
-                                            topLeftCornerRadius = rr.topLeftCornerRadius,
-                                            topRightCornerRadius = rr.topRightCornerRadius,
-                                            bottomLeftCornerRadius = rr.bottomLeftCornerRadius,
-                                            bottomRightCornerRadius = rr.bottomRightCornerRadius
-                                        )
-                                    )
-                                }
-                                is Outline.Generic -> outline.path
-                            }
-                            drawPath(borderPath, color = CardBorder, style = Stroke(width = stroke))
-                            // Overdraw internal edges with background color to hide border
-                            if (!prevIsSamePost && nextIsSamePost) {
-                                drawRect(CardBackground, Offset(0f, size.height - stroke), Size(size.width, stroke))
-                            } else if (prevIsSamePost && nextIsSamePost) {
-                                drawRect(CardBackground, Offset(0f, 0f), Size(size.width, stroke))
-                                drawRect(CardBackground, Offset(0f, size.height - stroke), Size(size.width, stroke))
-                            } else if (prevIsSamePost && !nextIsSamePost) {
-                                drawRect(CardBackground, Offset(0f, 0f), Size(size.width, stroke))
-                            }
-                        }
                 ) {
+                    val isFirstPost = segment.postId == detail.posts.firstOrNull()?.pid
                     when (segment) {
                         is PostSegment.Whole -> {
-                            Column(modifier = Modifier.padding(18.dp)) {
-                                PostHeader(segment.post, imageLoader, onOpenUserCenter)
-                                Spacer(Modifier.height(12.dp))
-                                PostContentBlocks(
-                                    post = segment.post,
-                                    blocks = segment.post.contentBlocks,
-                                    imageLoader = imageLoader,
-                                    imageDownloadClient = imageDownloadClient,
-                                    detailImageResizeWidthPx = detailImageResizeWidthPx,
-                                    imageAspectRatios = imageAspectRatios,
-                                    onOpenImage = onOpenImage,
-                                    onFavoriteText = onFavoriteText
-                                )
-                                PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
+                            Column(modifier = Modifier.padding(start = ThreadDetailHorizontalPadding, end = ThreadDetailHorizontalPadding, top = ThreadDetailTitlePadding, bottom = ThreadDetailTitlePadding)) {
+                                if (!isFirstPost) {
+                                    PostHeader(segment.post, imageLoader, onOpenUserCenter)
+                                    Spacer(Modifier.height(ThreadDetailSectionSpacing))
+                                }
+                                Column(modifier = if (!isFirstPost) Modifier.padding(start = ThreadPostContentIndent) else Modifier) {
+                                    PostContentBlocks(
+                                        post = segment.post,
+                                        blocks = segment.post.contentBlocks,
+                                        imageLoader = imageLoader,
+                                        imageDownloadClient = imageDownloadClient,
+                                        detailImageResizeWidthPx = detailImageResizeWidthPx,
+                                        imageAspectRatios = imageAspectRatios,
+                                        onOpenImage = onOpenImage,
+                                        onFavoriteText = onFavoriteText
+                                    )
+                                    PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
+                                }
                             }
                         }
                         is PostSegment.First -> {
-                            Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 0.5.dp)) {
-                                PostHeader(segment.post, imageLoader, onOpenUserCenter)
-                                Spacer(Modifier.height(12.dp))
-                                PostContentBlocks(
-                                    post = segment.post,
-                                    blocks = segment.blocks,
-                                    imageLoader = imageLoader,
-                                    imageDownloadClient = imageDownloadClient,
-                                    detailImageResizeWidthPx = detailImageResizeWidthPx,
-                                    imageAspectRatios = imageAspectRatios,
-                                    onOpenImage = onOpenImage,
-                                    onFavoriteText = onFavoriteText
-                                )
-                            }
-                        }
-                        is PostSegment.Middle -> {
-                            Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 0.5.dp, bottom = 0.5.dp)) {
-                                PostContentBlocks(
-                                    post = segment.post,
-                                    blocks = segment.blocks,
-                                    imageLoader = imageLoader,
-                                    imageDownloadClient = imageDownloadClient,
-                                    detailImageResizeWidthPx = detailImageResizeWidthPx,
-                                    imageAspectRatios = imageAspectRatios,
-                                    onOpenImage = onOpenImage,
-                                    onFavoriteText = onFavoriteText
-                                )
-                            }
-                        }
-                        is PostSegment.Tail -> {
-                            Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 0.5.dp, bottom = 18.dp)) {
-                                if (segment.blocks.isNotEmpty()) {
+                            Column(modifier = Modifier.padding(start = ThreadDetailHorizontalPadding, end = ThreadDetailHorizontalPadding, top = ThreadDetailTitlePadding, bottom = 0.dp)) {
+                                if (!isFirstPost) {
+                                    PostHeader(segment.post, imageLoader, onOpenUserCenter)
+                                    Spacer(Modifier.height(ThreadDetailSectionSpacing))
+                                }
+                                Column(modifier = if (!isFirstPost) Modifier.padding(start = ThreadPostContentIndent) else Modifier) {
                                     PostContentBlocks(
                                         post = segment.post,
                                         blocks = segment.blocks,
@@ -645,7 +651,41 @@ internal fun ThreadDetailScreen(
                                         onFavoriteText = onFavoriteText
                                     )
                                 }
-                                PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
+                            }
+                        }
+                        is PostSegment.Middle -> {
+                            Column(modifier = Modifier.padding(start = ThreadDetailHorizontalPadding, end = ThreadDetailHorizontalPadding, top = 0.dp, bottom = 0.dp)) {
+                                Column(modifier = if (!isFirstPost) Modifier.padding(start = ThreadPostContentIndent) else Modifier) {
+                                    PostContentBlocks(
+                                        post = segment.post,
+                                        blocks = segment.blocks,
+                                        imageLoader = imageLoader,
+                                        imageDownloadClient = imageDownloadClient,
+                                        detailImageResizeWidthPx = detailImageResizeWidthPx,
+                                        imageAspectRatios = imageAspectRatios,
+                                        onOpenImage = onOpenImage,
+                                        onFavoriteText = onFavoriteText
+                                    )
+                                }
+                            }
+                        }
+                        is PostSegment.Tail -> {
+                            Column(modifier = Modifier.padding(start = ThreadDetailHorizontalPadding, end = ThreadDetailHorizontalPadding, top = 0.dp, bottom = ThreadDetailTitlePadding)) {
+                                Column(modifier = if (!isFirstPost) Modifier.padding(start = ThreadPostContentIndent) else Modifier) {
+                                    if (segment.blocks.isNotEmpty()) {
+                                        PostContentBlocks(
+                                            post = segment.post,
+                                            blocks = segment.blocks,
+                                            imageLoader = imageLoader,
+                                            imageDownloadClient = imageDownloadClient,
+                                            detailImageResizeWidthPx = detailImageResizeWidthPx,
+                                            imageAspectRatios = imageAspectRatios,
+                                            onOpenImage = onOpenImage,
+                                            onFavoriteText = onFavoriteText
+                                        )
+                                    }
+                                    PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
+                                }
                             }
                         }
                     }
@@ -653,10 +693,11 @@ internal fun ThreadDetailScreen(
             }
             if (detail.nextPageUrl != null) {
                 item {
-                    Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = onLoadMoreReplies,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, top = 20.dp, end = 20.dp)
                     ) {
                         val remainingPages = (detail.totalPages - detail.currentPage).coerceAtLeast(1)
                         Text("继续加载更多评论，还剩 $remainingPages 页", color = TitleText)
@@ -680,7 +721,7 @@ internal fun PostHeader(
             imageUrl = post.authorAvatarUrl,
             name = post.author.ifBlank { "匿名" },
             uid = post.authorUid,
-            avatarSize = 40.dp,
+            avatarSize = ThreadPostAvatarSize,
             nameTextStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             metaText = listOf(post.floor, post.time).filter { it.isNotBlank() }.joinToString(" · "),
             onOpenUserCenter = onOpenUserCenter
@@ -709,7 +750,7 @@ internal fun PostContentBlocks(
                 color = TitleText,
                 onFavorite = onFavoriteText
             )
-            if (index < blocks.lastIndex) Spacer(Modifier.height(10.dp))
+            if (index < blocks.lastIndex) Spacer(Modifier.height(ThreadDetailSectionSpacing))
         }
         block.imageUrl?.let { imageUrl ->
             var launchSource by remember(imageUrl) { mutableStateOf<PreviewLaunchSource?>(null) }
@@ -719,6 +760,7 @@ internal fun PostContentBlocks(
                 imageLoader = imageLoader,
                 imageDownloadClient = imageDownloadClient,
                 modifier = Modifier
+                    .padding(vertical = ThreadDetailImageVerticalPadding)
                     .onGloballyPositioned { coordinates ->
                         val bounds = coordinates.boundsInWindow()
                         launchSource = PreviewLaunchSource(
@@ -746,7 +788,6 @@ internal fun PostContentBlocks(
                 resizeWidthPx = detailImageResizeWidthPx,
                 showOriginalDirectly = false
             )
-            if (index < blocks.lastIndex) Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -759,7 +800,7 @@ internal fun PostFooter(
     onRemark: (PostItem) -> Unit
 ) {
     if (post.remarks.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(ThreadDetailRemarksTopSpacing))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             post.remarks.forEach { remark ->
                 RemarkCard(
@@ -770,16 +811,18 @@ internal fun PostFooter(
             }
         }
     }
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(ThreadDetailFooterTopSpacing))
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End
     ) {
-        Text(
-            "点评",
-            color = TitleText,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.clickable { onRemark(post) }
+        Icon(
+            imageVector = Icons.Outlined.ChatBubbleOutline,
+            contentDescription = "点评",
+            tint = MutedText,
+            modifier = Modifier
+                .size(18.dp)
+                .clickable { onRemark(post) }
         )
     }
 }

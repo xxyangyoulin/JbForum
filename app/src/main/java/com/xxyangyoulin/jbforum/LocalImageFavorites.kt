@@ -3,6 +3,7 @@ package com.xxyangyoulin.jbforum
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import java.io.File
 import java.security.MessageDigest
@@ -42,26 +43,40 @@ object LocalImageFavorites {
         sourceThreadUrl: String = ""
     ): LocalFavoriteImage {
         return withContext(Dispatchers.IO) {
-            val existing = load().firstOrNull { it.originalUrl == imageRef || it.filePath == imageRef }
-            if (existing != null) return@withContext existing
+            val isContentUri = imageRef.startsWith("content://")
+            if (!isContentUri) {
+                val existing = load().firstOrNull { it.originalUrl == imageRef || it.filePath == imageRef }
+                if (existing != null) return@withContext existing
+            }
 
             val favoritesDir = File(context.filesDir, AppConstants.CACHE_DIR_FAVORITE_IMAGES).apply { mkdirs() }
             val thumbnailsDir = File(context.filesDir, AppConstants.CACHE_DIR_FAVORITE_THUMBNAILS).apply { mkdirs() }
-            val bytes = if (imageRef.startsWith("http")) {
-                client.newCall(
-                    Request.Builder()
-                        .url(imageRef)
-                        .header("Referer", ForumDomainConfig.requireBaseUrl())
-                        .build()
-                ).execute().use { response ->
-                    if (!response.isSuccessful) error("下载图片失败: ${response.code}")
-                    response.body?.bytes() ?: error("图片内容为空")
+            val bytes = when {
+                imageRef.startsWith("http") -> {
+                    client.newCall(
+                        Request.Builder()
+                            .url(imageRef)
+                            .header("Referer", ForumDomainConfig.requireBaseUrl())
+                            .build()
+                    ).execute().use { response ->
+                        if (!response.isSuccessful) error("下载图片失败: ${response.code}")
+                        response.body?.bytes() ?: error("图片内容为空")
+                    }
                 }
-            } else {
-                File(imageRef).takeIf { it.exists() }?.readBytes() ?: error("图片文件不存在")
+                isContentUri -> {
+                    context.contentResolver.openInputStream(Uri.parse(imageRef))?.use { it.readBytes() }
+                        ?: error("图片内容为空")
+                }
+                else -> {
+                    File(imageRef).takeIf { it.exists() }?.readBytes() ?: error("图片文件不存在")
+                }
             }
-            val extension = extensionFor(imageRef)
-            val id = sha1(imageRef)
+            val extension = extensionFor(context, imageRef)
+            val id = if (isContentUri) sha1(bytes) else sha1(imageRef)
+            if (isContentUri) {
+                val existing = load().firstOrNull { it.id == id }
+                if (existing != null) return@withContext existing
+            }
             val target = File(favoritesDir, "$id.$extension")
             if (!target.exists()) {
                 target.writeBytes(bytes)
@@ -235,7 +250,16 @@ object LocalImageFavorites {
         return sampleSize.coerceAtLeast(1)
     }
 
-    private fun extensionFor(imageRef: String): String {
+    private fun extensionFor(context: Context, imageRef: String): String {
+        if (imageRef.startsWith("content://")) {
+            val mimeType = context.contentResolver.getType(Uri.parse(imageRef)).orEmpty().lowercase()
+            return when {
+                mimeType == "image/gif" -> "gif"
+                mimeType == "image/webp" -> "webp"
+                mimeType == "image/png" -> "png"
+                else -> "jpg"
+            }
+        }
         val normalized = imageRef.substringBefore('?').lowercase()
         return when {
             normalized.endsWith(".gif") -> "gif"
@@ -260,8 +284,14 @@ object LocalImageFavorites {
     }
 
     private fun shouldCompressStaticImage(sourceFile: File): Boolean {
-        if (extensionFor(sourceFile.absolutePath) == "gif") return false
+        if (extensionFor(appContext ?: error("LocalImageFavorites not initialized"), sourceFile.absolutePath) == "gif") return false
         return sourceFile.length() > AppConstants.IMAGE_COMPRESS_THRESHOLD_BYTES
+    }
+
+    private fun sha1(value: ByteArray): String {
+        return MessageDigest.getInstance("SHA-1")
+            .digest(value)
+            .joinToString("") { "%02x".format(it) }
     }
 
     private fun sha1(value: String): String {

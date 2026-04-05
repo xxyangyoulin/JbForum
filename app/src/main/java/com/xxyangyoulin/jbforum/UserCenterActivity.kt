@@ -66,6 +66,7 @@ import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.UserThreadCard
+import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.util.openThreadByPreference
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
@@ -212,18 +213,18 @@ internal fun UserCenterScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(Dimens.contentCardPadding),
+                verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
             ) {
             profile?.let {
                 item {
                     OutlinedCard(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(Dimens.contentCardCorner),
                         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                        border = BorderStroke(1.dp, CardBorder)
+                        border = BorderStroke(0.dp, Color.Transparent)
                     ) {
-                        Column(modifier = Modifier.padding(18.dp)) {
+                        Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 AuthorAvatar(imageLoader = imageLoader, imageUrl = it.avatarUrl, name = it.username, size = 52.dp)
                                 Spacer(Modifier.width(12.dp))
@@ -232,7 +233,7 @@ internal fun UserCenterScreen(
                                     Text("UID: ${it.uid}", color = MutedText, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(Dimens.contentCardSpacing))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (isOwnProfile) {
                                     SelectablePill("收藏", tab == "favorite") { tab = "favorite" }
@@ -334,11 +335,14 @@ internal fun UserProfileCard(
     if (items.isEmpty()) return
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(Dimens.contentCardCorner),
         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-        border = BorderStroke(1.dp, CardBorder)
+        border = BorderStroke(0.dp, Color.Transparent)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier.padding(Dimens.contentCardPadding),
+            verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
+        ) {
             Text(title, color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             items.forEach { (key, value) ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

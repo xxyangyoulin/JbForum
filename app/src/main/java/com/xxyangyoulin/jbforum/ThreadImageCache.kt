@@ -37,6 +37,7 @@ object ThreadImageCache {
                         val bytes = client.newCall(
                             Request.Builder()
                                 .url(imageRef)
+                                .header("Referer", ForumDomainConfig.requireBaseUrl())
                                 .build()
                         ).execute().use { response ->
                             if (!response.isSuccessful) error("下载图片失败: ${response.code}")

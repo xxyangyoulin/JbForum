@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xxyangyoulin.jbforum.AppColors
+import com.xxyangyoulin.jbforum.ui.theme.Dimens
 
 /**
  * Hero 卡片
@@ -23,14 +24,14 @@ import com.xxyangyoulin.jbforum.AppColors
 @Composable
 fun HeroCard(title: String, subtitle: String) {
     OutlinedCard(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(Dimens.contentCardCorner),
         colors = CardDefaults.outlinedCardColors(containerColor = AppColors.CardBackground),
-        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.CardBorder)
+        border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp)
+                .padding(Dimens.contentCardPadding)
         ) {
             Text(
                 title,

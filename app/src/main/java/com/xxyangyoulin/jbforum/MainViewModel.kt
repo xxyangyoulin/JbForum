@@ -177,6 +177,8 @@ class MainViewModel(
     fun logout() = launchTask {
         _state.update { it.copy(loading = true, message = null, challenge = null) }
         repository.logout()
+        CookiePersistence.clear()
+        LoginPersistence.clear()
         _state.update {
             it.copy(
                 session = null,

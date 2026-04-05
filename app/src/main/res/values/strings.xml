@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">JbForum</string>
+    <string name="shortcut_local_favorites_short">本地收藏</string>
+    <string name="shortcut_local_favorites_long">本地收藏</string>
 </resources>

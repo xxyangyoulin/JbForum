@@ -27,4 +27,13 @@ object LoginPersistence {
             .putString(keyPassword, password)
             .apply()
     }
+
+    fun clear() {
+        val context = appContext ?: return
+        context.getSharedPreferences(AppConstants.PREFS_LOGIN, Context.MODE_PRIVATE)
+            .edit()
+            .remove(keyUsername)
+            .remove(keyPassword)
+            .apply()
+    }
 }

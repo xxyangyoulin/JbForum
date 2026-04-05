@@ -34,6 +34,7 @@ import com.xxyangyoulin.jbforum.ThreadSummary
 import com.xxyangyoulin.jbforum.UserThreadItem
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
+import com.xxyangyoulin.jbforum.ui.theme.Dimens
 
 /**
  * 作者头像
@@ -51,6 +52,7 @@ fun AuthorAvatar(
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
+                .crossfade(150)
                 .allowHardware(false)
                 .bitmapConfig(Bitmap.Config.RGB_565)
                 .memoryCachePolicy(CachePolicy.ENABLED)
@@ -154,7 +156,7 @@ fun RemarkCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(AppColors.InputBackground)
-            .padding(10.dp),
+            .padding(Dimens.contentCardPadding),
         verticalAlignment = Alignment.Top
     ) {
         AuthorAvatar(
@@ -201,10 +203,11 @@ fun UserThreadCard(
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth(),
+        border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent),
         onClick = { onOpenThread(item) }
     ) {
         Column(
-            modifier = Modifier.padding(12.dp)
+            modifier = Modifier.padding(Dimens.contentCardPadding)
         ) {
             Text(
                 text = item.title,
@@ -274,7 +277,7 @@ fun UserProfileCard(
         colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(Dimens.contentCardPadding),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             AuthorAvatar(

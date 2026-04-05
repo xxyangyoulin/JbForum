@@ -3,6 +3,7 @@ package com.xxyangyoulin.jbforum
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
@@ -411,10 +412,7 @@ internal fun LocalLinkFavoritesContent(
                     colors = CardDefaults.outlinedCardColors(
                         containerColor = if (selected) AccentGreen.copy(alpha = 0.08f) else CardBackground
                     ),
-                    border = BorderStroke(
-                        1.dp,
-                        if (selected) AccentGreen else CardBorder
-                    )
+                    border = BorderStroke(0.dp, Color.Transparent)
                 ) {
                     Column(
                         modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 3.dp),
@@ -645,6 +643,10 @@ internal fun LocalFavoritesScreen(
             adapter.release()
         }
     }
+    BackHandler(enabled = selectedIds.isNotEmpty()) {
+        confirmDelete = false
+        selectedIds.clear()
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -656,21 +658,46 @@ internal fun LocalFavoritesScreen(
                     RecyclerView(androidContext).apply {
                         clipToPadding = false
                         itemAnimator = null
+                        val spanCount = 2
+                        val spacingPx = (3 * resources.displayMetrics.density).roundToInt()
+                        val halfSpacingPx = spacingPx / 2
                         setPadding(
-                            (11 * resources.displayMetrics.density).roundToInt(),
-                            (11 * resources.displayMetrics.density).roundToInt(),
-                            (11 * resources.displayMetrics.density).roundToInt(),
+                            0,
+                            0,
+                            0,
                             (11 * resources.displayMetrics.density).roundToInt()
                         )
-                        layoutManager = object : StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL) {
+                        layoutManager = object : StaggeredGridLayoutManager(spanCount, StaggeredGridLayoutManager.VERTICAL) {
                             override fun supportsPredictiveItemAnimations(): Boolean = false
+                        }.apply {
+                            gapStrategy = StaggeredGridLayoutManager.GAP_HANDLING_NONE
                         }
+                        addItemDecoration(object : RecyclerView.ItemDecoration() {
+                            override fun getItemOffsets(outRect: android.graphics.Rect, view: android.view.View, parent: RecyclerView, state: RecyclerView.State) {
+                                val lp = view.layoutParams as? StaggeredGridLayoutManager.LayoutParams
+                                val spanIndex = lp?.spanIndex ?: 0
+                                if (spanIndex == 0) {
+                                    outRect.set(0, 0, halfSpacingPx, spacingPx)
+                                } else {
+                                    outRect.set(halfSpacingPx, 0, 0, spacingPx)
+                                }
+                            }
+                        })
                         this.adapter = adapter.also { favoritesAdapter ->
                             favoritesAdapter.recyclerView = this
                             favoritesAdapter.submitItems(images)
                             favoritesAdapter.updateSelection(selectedIds.toSet())
                             post { favoritesAdapter.rebindVisiblePlayers() }
                         }
+                        val updateColumnWidth = {
+                            val availableWidth = width - paddingLeft - paddingRight
+                            val columnWidth = ((availableWidth - spacingPx) / spanCount).coerceAtLeast(0)
+                            adapter.updateColumnWidth(columnWidth)
+                        }
+                        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                            updateColumnWidth()
+                        }
+                        post { updateColumnWidth() }
                         addOnScrollListener(object : RecyclerView.OnScrollListener() {
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 adapter.setScrolling(newState != RecyclerView.SCROLL_STATE_IDLE)

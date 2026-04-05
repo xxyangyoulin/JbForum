@@ -92,6 +92,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
@@ -217,6 +218,7 @@ import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
+import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 
@@ -233,6 +235,8 @@ private const val LogTag = "JbForum"
 
 
 class MainActivity : ComponentActivity() {
+    private lateinit var viewModel: MainViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
@@ -245,8 +249,15 @@ class MainActivity : ComponentActivity() {
         GitHubUpdateChecker.init(applicationContext)
         enableEdgeToEdge()
         setContent {
-            val viewModel: MainViewModel = viewModel()
+            viewModel = viewModel()
             ForumApp(viewModel)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (::viewModel.isInitialized) {
+            viewModel.refreshSession()
         }
     }
 }
@@ -354,6 +365,25 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                     },
                                     enabled = state.session != null,
                                     leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("网站首页") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        val configuredDomain = ForumDomainConfig.getDomain()
+                                        if (configuredDomain.isBlank()) {
+                                            Toast.makeText(context, "请先在设置中填写论坛域名", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            context.startActivity(
+                                                ThreadWebViewActivity.createIntent(
+                                                    context = context,
+                                                    url = "https://$configuredDomain",
+                                                    title = "网站首页"
+                                                )
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("设置") },
@@ -494,8 +524,9 @@ internal class LocalFavoriteViewHolder(
     private val placeholder = TextView(cardView.context).apply {
         layoutParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            cardView.context.resources.displayMetrics.density.times(180).roundToInt()
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
+        setMinimumHeight(cardView.context.resources.displayMetrics.density.times(120).roundToInt())
         gravity = Gravity.CENTER
         setTextColor(android.graphics.Color.parseColor("#8B94A1"))
         textSize = 13f
@@ -521,7 +552,6 @@ internal class LocalFavoriteViewHolder(
     private var imageRequestDisposable: coil.request.Disposable? = null
     private var prepareJob: Job? = null
     private var gifJob: Job? = null
-    private var lockedAspectRatio: Float? = null
     var boundItemId: String = ""
         private set
     var currentGifRef: String? = null
@@ -539,11 +569,47 @@ internal class LocalFavoriteViewHolder(
         }
     }
 
+    private fun applyItemHeight(item: LocalFavoriteImage, columnWidthPx: Int) {
+        // 始终从原始文件读取尺寸（原始文件始终存在，缩略图可能未生成）
+        val sourceFile = File(item.filePath)
+        if (!sourceFile.exists()) {
+            contentFrame.layoutParams = contentFrame.layoutParams.apply {
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            return
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(sourceFile.absolutePath, bounds)
+        val imgWidth = bounds.outWidth
+        val imgHeight = bounds.outHeight
+        if (imgWidth <= 0 || imgHeight <= 0) {
+            contentFrame.layoutParams = contentFrame.layoutParams.apply {
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            return
+        }
+        val measuredWidth = contentFrame.width.takeIf { it > 0 } ?: itemView.width
+        val colWidth = when {
+            columnWidthPx > 0 -> columnWidthPx
+            measuredWidth > 0 -> measuredWidth
+            else -> 0
+        }
+        if (colWidth <= 0) {
+            contentFrame.layoutParams = contentFrame.layoutParams.apply {
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            return
+        }
+        val calculatedHeight = (colWidth * imgHeight.toFloat() / imgWidth.toFloat()).toInt()
+        contentFrame.layoutParams = contentFrame.layoutParams.apply {
+            height = calculatedHeight
+        }
+    }
+
     fun bind(
         item: LocalFavoriteImage,
         selected: Boolean,
-        cachedAspectRatio: Float?,
-        onAspectRatioResolved: (Float) -> Unit,
+        columnWidthPx: Int,
         onPrepared: () -> Unit
     ) {
         boundItemId = item.id
@@ -554,11 +620,17 @@ internal class LocalFavoriteViewHolder(
         gifDrawable?.stop()
         gifDrawable = null
         currentGifRef = null
+        // 根据图片实际尺寸预设高度，防止 StaggeredGrid 布局跳动
+        applyItemHeight(item, columnWidthPx)
+        if (columnWidthPx <= 0 && contentFrame.width <= 0 && itemView.width <= 0) {
+            itemView.post {
+                if (boundItemId != item.id) return@post
+                applyItemHeight(item, 0)
+            }
+        }
         imageView.setImageDrawable(null)
 
         val displayRef = LocalImageFavorites.thumbnailOrOriginal(item)
-        val hasCachedAspectRatio = cachedAspectRatio != null && cachedAspectRatio > 0f
-        cachedAspectRatio?.takeIf { it > 0f }?.let(::applyAspectRatio)
         val phase = if (displayRef != null) CachedImagePhase.Ready else LocalImageFavorites.phase(item)
         if (displayRef == null) {
             showPlaceholder(
@@ -584,11 +656,6 @@ internal class LocalFavoriteViewHolder(
                     if (boundItemId != item.id) return@withContext
                     gifDrawable = drawable
                     drawable?.let {
-                        if (!hasCachedAspectRatio) {
-                            val aspectRatio = it.intrinsicWidth.toFloat() / it.intrinsicHeight.coerceAtLeast(1).toFloat()
-                            applyAspectRatio(aspectRatio)
-                            onAspectRatioResolved(aspectRatio)
-                        }
                         it.stop()
                         placeholder.visibility = View.GONE
                         imageView.setImageDrawable(it)
@@ -600,25 +667,11 @@ internal class LocalFavoriteViewHolder(
                 }
             }
         } else {
-            if (!hasCachedAspectRatio) {
-                lockedAspectRatio = null
-            }
             placeholder.visibility = View.GONE
-            if (!hasCachedAspectRatio) {
-                gifJob = scope.launch(Dispatchers.IO) {
-                    resolveLocalImageAspectRatio(displayRef)?.let { ratio ->
-                        withContext(Dispatchers.Main) {
-                            if (boundItemId == item.id) {
-                                applyAspectRatio(ratio)
-                                onAspectRatioResolved(ratio)
-                            }
-                        }
-                    }
-                }
-            }
             imageRequestDisposable = imageLoader.enqueue(
                 ImageRequest.Builder(itemView.context)
                     .data(File(displayRef))
+                    .crossfade(300)
                     .allowHardware(false)
                     .bitmapConfig(Bitmap.Config.RGB_565)
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -632,7 +685,7 @@ internal class LocalFavoriteViewHolder(
     fun updateSelectionState(selected: Boolean) {
         selectionOverlay.visibility = if (selected) View.VISIBLE else View.GONE
         (itemView as MaterialCardView).strokeColor =
-            if (selected) android.graphics.Color.parseColor("#CB0000") else android.graphics.Color.parseColor("#E8EBEF")
+            if (selected) android.graphics.Color.parseColor("#CB0000") else android.graphics.Color.TRANSPARENT
     }
 
     fun recycle() {
@@ -657,39 +710,6 @@ internal class LocalFavoriteViewHolder(
         placeholder.visibility = View.VISIBLE
     }
 
-    private fun applyAspectRatio(aspectRatio: Float) {
-        if (aspectRatio <= 0f) return
-        if (lockedAspectRatio == null || kotlin.math.abs(lockedAspectRatio!! - aspectRatio) > 0.02f) {
-            lockedAspectRatio = aspectRatio
-        }
-        val contentWidth = sequenceOf(contentFrame.width, itemView.width, itemView.measuredWidth)
-            .firstOrNull { it > 0 }
-        if (contentWidth == null) {
-            contentFrame.post { applyAspectRatio(aspectRatio) }
-            return
-        }
-        val finalAspectRatio = lockedAspectRatio?.takeIf { it > 0f } ?: aspectRatio
-        val targetHeight = (contentWidth / finalAspectRatio.coerceAtLeast(0.1f)).roundToInt()
-            .coerceAtLeast(1)
-        contentFrame.layoutParams = contentFrame.layoutParams.apply {
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = targetHeight
-        }
-        imageView.layoutParams = (imageView.layoutParams as FrameLayout.LayoutParams).apply {
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = ViewGroup.LayoutParams.MATCH_PARENT
-        }
-        placeholder.layoutParams = (placeholder.layoutParams as FrameLayout.LayoutParams).apply {
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = ViewGroup.LayoutParams.MATCH_PARENT
-        }
-        selectionOverlay.layoutParams = (selectionOverlay.layoutParams as FrameLayout.LayoutParams).apply {
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = ViewGroup.LayoutParams.MATCH_PARENT
-        }
-        contentFrame.requestLayout()
-    }
-
     fun startGif() {
         if (isReadyToPlay()) {
             gifDrawable?.start()
@@ -708,15 +728,6 @@ internal class LocalFavoriteViewHolder(
         val totalArea = itemView.width * itemView.height
         val visibleArea = rect.width() * rect.height()
         return visible && totalArea > 0 && visibleArea.toFloat() / totalArea.toFloat() >= 0.3f
-    }
-
-    private fun resolveLocalImageAspectRatio(path: String): Float? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, bounds)
-        val width = bounds.outWidth
-        val height = bounds.outHeight
-        if (width <= 0 || height <= 0) return null
-        return width.toFloat() / height.toFloat()
     }
 
     private fun currentLaunchSource(): PreviewLaunchSource? {
@@ -743,7 +754,7 @@ internal class LocalFavoritesAdapter(
     private val scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefetchedIds = linkedSetOf<String>()
     private var lastVisibleGifIds: List<String> = emptyList()
-    private val aspectRatioCache = mutableMapOf<String, Float>()
+    private var columnWidthPx: Int = 0
 
     init {
         setHasStableIds(true)
@@ -765,22 +776,27 @@ internal class LocalFavoritesAdapter(
         }
     }
 
+    fun updateColumnWidth(widthPx: Int) {
+        if (widthPx <= 0 || widthPx == columnWidthPx) return
+        columnWidthPx = widthPx
+        notifyDataSetChanged()
+        recyclerView?.post { rebindVisiblePlayers() }
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LocalFavoriteViewHolder {
         val cardView = MaterialCardView(parent.context).apply {
             layoutParams = RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                val margin = context.resources.displayMetrics.density.roundToInt()
-                leftMargin = margin
-                rightMargin = margin
-                topMargin = margin
-                bottomMargin = margin
+                leftMargin = 0
+                rightMargin = 0
+                topMargin = 0
+                bottomMargin = 0
             }
             radius = 0f
-            strokeWidth = parent.context.resources.displayMetrics.density.roundToInt() * 2
+            strokeWidth = 0
             setCardBackgroundColor(android.graphics.Color.WHITE)
-            strokeColor = android.graphics.Color.parseColor("#E8EBEF")
         }
         return LocalFavoriteViewHolder(
             cardView = cardView,
@@ -802,12 +818,7 @@ internal class LocalFavoritesAdapter(
         holder.bind(
             item = item,
             selected = item.id in selectedIds,
-            cachedAspectRatio = aspectRatioCache[item.id],
-            onAspectRatioResolved = { ratio ->
-                if (ratio > 0f) {
-                    aspectRatioCache[item.id] = ratio
-                }
-            },
+            columnWidthPx = columnWidthPx,
             onPrepared = {
                 recyclerView?.post { rebindVisiblePlayers() }
             }
@@ -915,8 +926,8 @@ internal fun BoardListScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(Dimens.contentCardPadding),
+                verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
             ) {
                 item {
                     HeroCard(
@@ -929,11 +940,11 @@ internal fun BoardListScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenBoard(board) },
-                        shape = RoundedCornerShape(22.dp),
+                        shape = RoundedCornerShape(Dimens.contentCardCorner),
                         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                        border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
                     ) {
-                        Column(modifier = Modifier.padding(18.dp)) {
+                        Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
                             Text(board.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = TitleText)
                             Spacer(Modifier.height(6.dp))
                             Text(board.description, style = MaterialTheme.typography.bodyMedium, color = MutedText)
@@ -1098,7 +1109,7 @@ internal fun ThreadLinksDialog(
                         OutlinedCard(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                            border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
                         ) {
                             Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(
@@ -1287,7 +1298,7 @@ internal fun ThreadHistoryPanel(
                                             .fillMaxWidth()
                                             .clickable { onOpen(item) },
                                         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                                        border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
                                     ) {
                                         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                             Text(

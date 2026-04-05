@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="local_favorites"
+        android:shortcutShortLabel="@string/shortcut_local_favorites_short"
+        android:shortcutLongLabel="@string/shortcut_local_favorites_long">
+        <intent
+            android:action="com.xxyangyoulin.jbforum.action.OPEN_LOCAL_FAVORITES"
+            android:targetClass="com.xxyangyoulin.jbforum.ShortcutEntryActivity"
+            android:targetPackage="com.xxyangyoulin.jbforum" />
+    </shortcut>
+</shortcuts>

@@ -40,10 +40,32 @@
         <activity
             android:name=".ImagePreviewActivity"
             android:exported="false"
-            android:theme="@style/Theme.JbForum" />
+            android:theme="@style/Theme.JbForum.ImagePreview" />
+        <activity
+            android:name=".ShareImportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.JbForum.ShareImport">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ShortcutEntryActivity"
+            android:exported="true"
+            android:theme="@style/Theme.JbForum.ShareImport" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

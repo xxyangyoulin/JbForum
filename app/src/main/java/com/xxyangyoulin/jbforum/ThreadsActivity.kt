@@ -8,6 +8,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +37,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -53,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,11 +78,13 @@ import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
 import com.xxyangyoulin.jbforum.ui.components.HeroCard
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
+import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
@@ -153,6 +162,7 @@ internal fun ThreadsActivityScreen(
     var searchDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
+    var hideComposeFab by remember { mutableStateOf(false) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let { data ->
             val threadUrl = data.getStringExtra(ImagePreviewActivity.EXTRA_OPEN_THREAD_URL).orEmpty()
@@ -262,6 +272,22 @@ internal fun ThreadsActivityScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            AnimatedVisibility(
+                visible = state.session != null && state.selectedBoard?.url?.contains("forumdisplay") == true && !hideComposeFab,
+                enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                exit = fadeOut() + scaleOut(targetScale = 0.85f)
+            ) {
+                FloatingActionButton(
+                    onClick = viewModel::prepareNewThread,
+                    containerColor = AccentGreen,
+                    contentColor = Color.White,
+                    modifier = Modifier.navigationBarsPadding()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                }
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -287,23 +313,11 @@ internal fun ThreadsActivityScreen(
                     },
                     onListScrollChanged = viewModel::updateThreadListScroll,
                     onLoadMore = viewModel::loadMoreThreads,
+                    onNearBottomChanged = { hideComposeFab = it },
                     onCompose = {
                         if (state.session != null) viewModel.prepareNewThread() else viewModel.prepareLogin()
                     }
                 )
-            }
-            if (state.session != null && state.selectedBoard?.url?.contains("forumdisplay") == true) {
-                FloatingActionButton(
-                    onClick = viewModel::prepareNewThread,
-                    containerColor = AccentGreen,
-                    contentColor = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = FloatingButtonEdgePadding)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                }
             }
         }
     }
@@ -374,8 +388,10 @@ internal fun ThreadListScreen(
     onOpenThread: (ThreadSummary) -> Unit,
     onListScrollChanged: (Int, Int) -> Unit,
     onLoadMore: () -> Unit,
+    onNearBottomChanged: (Boolean) -> Unit,
     onCompose: () -> Unit
 ) {
+    val context = LocalContext.current
     val canCompose = board.url.contains("forumdisplay")
     val isSearchResult = board.url.contains("search.php?mod=forum")
     val configuration = LocalConfiguration.current
@@ -389,6 +405,19 @@ internal fun ThreadListScreen(
         initialFirstVisibleItemIndex = initialFirstVisibleItemIndex,
         initialFirstVisibleItemScrollOffset = initialFirstVisibleItemScrollOffset
     )
+    val nearBottom by remember(listState, density) {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+            if (lastVisible.index != listState.layoutInfo.totalItemsCount - 1) return@derivedStateOf false
+            val thresholdPx = with(density) { 20.dp.roundToPx() }
+            val remaining = listState.layoutInfo.viewportEndOffset - (lastVisible.offset + lastVisible.size)
+            remaining <= thresholdPx
+        }
+    }
+
+    LaunchedEffect(nearBottom) {
+        onNearBottomChanged(nearBottom)
+    }
 
     RefreshContainer(
         refreshing = refreshing,
@@ -401,8 +430,8 @@ internal fun ThreadListScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(Dimens.contentCardPadding),
+                verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
             ) {
             item {
                 HeroCard(title = board.title, subtitle = board.description.ifBlank { "讨论列表" })
@@ -421,11 +450,11 @@ internal fun ThreadListScreen(
                             )
                             onOpenThread(thread)
                         },
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(Dimens.contentCardCorner),
                     colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                    border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
                         if (isSearchResult) {
                             ClickableName(
                                 name = thread.author,
@@ -457,7 +486,10 @@ internal fun ThreadListScreen(
                                 ) {
                                     thread.titleIconUrls.forEach { iconUrl ->
                                         AsyncImage(
-                                            model = iconUrl,
+                                            model = ImageRequest.Builder(context)
+                                                .data(iconUrl)
+                                                .crossfade(150)
+                                                .build(),
                                             imageLoader = imageLoader,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)

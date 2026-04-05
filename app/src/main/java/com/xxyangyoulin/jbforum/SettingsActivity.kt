@@ -10,25 +10,44 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -47,10 +66,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.util.readAppVersionName
@@ -128,8 +150,11 @@ private fun SettingsScreen(
     var stats by remember { mutableStateOf(CacheStats(0L, 0L)) }
     var loading by remember { mutableStateOf(true) }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmLogout by remember { mutableStateOf(false) }
     var forumDomain by remember { mutableStateOf(ForumDomainConfig.getDomain()) }
     var openThreadInWeb by remember { mutableStateOf(ForumDomainConfig.openThreadInWebDefault()) }
+    var showDomainDialog by remember { mutableStateOf(false) }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         backupProcessingText = "正在导入备份..."
@@ -164,136 +189,154 @@ private fun SettingsScreen(
             .fillMaxSize()
             .padding(padding)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        OutlinedCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-            colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-            border = BorderStroke(1.dp, CardBorder)
-        ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("论坛域名", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = forumDomain,
-                    onValueChange = { forumDomain = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("例如 www.xxx.com") }
-                )
-                OutlinedButton(
-                    onClick = {
-                        runCatching {
-                            ForumDomainConfig.setDomain(forumDomain)
-                            CookiePersistence.clear()
-                        }.onSuccess {
-                            Toast.makeText(context, "域名已保存", Toast.LENGTH_SHORT).show()
-                        }.onFailure {
-                            Toast.makeText(context, it.message ?: "域名保存失败", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !backupProcessing
-                ) {
-                    Text("保存域名", color = TitleText)
+        // 通用设置
+        SettingsSection(title = "通用设置") {
+            SettingsItem(
+                icon = Icons.Default.Language,
+                title = "论坛域名",
+                subtitle = forumDomain.ifBlank { "未设置" },
+                onClick = { showDomainDialog = true }
+            )
+            SettingsSwitchItem(
+                icon = Icons.Default.Language,
+                title = "默认网页浏览帖子",
+                checked = openThreadInWeb,
+                onCheckedChange = {
+                    openThreadInWeb = it
+                    ForumDomainConfig.setOpenThreadInWebDefault(it)
                 }
+            )
+        }
+
+        // 数据管理
+        SettingsSection(title = "数据管理") {
+            // 缓存信息
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("默认网页浏览帖子", color = TitleText)
-                    Switch(
-                        checked = openThreadInWeb,
-                        onCheckedChange = {
-                            openThreadInWeb = it
-                            ForumDomainConfig.setOpenThreadInWebDefault(it)
-                        },
-                        enabled = !backupProcessing
+                    Text("缓存占用", color = TitleText, fontSize = 16.sp)
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = AccentGreen,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            formatBytes(stats.totalBytes),
+                            color = MutedText,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+                if (!loading && stats.totalBytes > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { (stats.favoriteBytes.toFloat() / stats.totalBytes.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = AccentGreen,
+                        trackColor = Color(0xFFE8EBEF)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "收藏缓存：${formatBytes(stats.favoriteBytes)}",
+                        color = MutedText,
+                        fontSize = 12.sp
                     )
                 }
             }
-        }
-        OutlinedCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-            colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-            border = BorderStroke(1.dp, CardBorder)
-        ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("缓存信息", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (loading) {
-                    CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp)
-                } else {
-                    Text("当前全部缓存大小：${formatBytes(stats.totalBytes)}", color = TitleText)
-                    Text("收藏缓存大小：${formatBytes(stats.favoriteBytes)}", color = TitleText)
+
+            SettingsDivider()
+
+            SettingsItem(
+                icon = Icons.Default.Delete,
+                title = "清除缓存",
+                titleColor = Color(0xFFD32F2F),
+                onClick = { confirmClear = true }
+            )
+            SettingsDivider()
+            SettingsItem(
+                icon = Icons.Default.CloudUpload,
+                title = "导出备份",
+                onClick = {
+                    backupProcessingText = "正在导出备份..."
+                    backupProcessing = true
+                    scope.launch {
+                        runCatching { BackupManager.exportToDownloads(context) }
+                            .onSuccess { Toast.makeText(context, "导出成功：$it", Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_SHORT).show() }
+                        backupProcessing = false
+                    }
                 }
-            }
+            )
+            SettingsDivider()
+            SettingsItem(
+                icon = Icons.Default.CloudDownload,
+                title = "导入备份",
+                onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }
+            )
         }
-        OutlinedButton(
-            onClick = { confirmClear = true },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !backupProcessing
-        ) {
-            Text("清除缓存", color = TitleText)
-        }
-        OutlinedButton(
-            onClick = {
-                backupProcessingText = "正在导出备份..."
-                backupProcessing = true
-                scope.launch {
-                    runCatching { BackupManager.exportToDownloads(context) }
-                        .onSuccess { Toast.makeText(context, "导出成功：$it", Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_SHORT).show() }
-                    backupProcessing = false
+
+        // 关于
+        SettingsSection(title = "关于") {
+            SettingsItem(
+                icon = Icons.Default.Info,
+                title = "当前版本",
+                subtitle = "v${currentVersion}",
+                showArrow = false
+            )
+            SettingsDivider()
+            SettingsItem(
+                icon = Icons.Default.Refresh,
+                title = "检查更新",
+                onClick = {
+                    backupProcessingText = "正在检查更新..."
+                    backupProcessing = true
+                    scope.launch {
+                        runCatching { GitHubUpdateChecker.latestRelease() }
+                            .onSuccess { latest ->
+                                currentVersion = readAppVersionName(context)
+                                hasNewVersion = GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)
+                                updateInfo = latest
+                            }
+                            .onFailure {
+                                Toast.makeText(context, it.message ?: "检查更新失败", Toast.LENGTH_SHORT).show()
+                            }
+                        backupProcessing = false
+                    }
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !backupProcessing
-        ) {
-            Text("导出备份", color = TitleText)
+            )
         }
-        OutlinedButton(
-            onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !backupProcessing
-        ) {
-            Text("导入备份", color = TitleText)
-        }
-        OutlinedButton(
-            onClick = {
-                backupProcessingText = "正在检查更新..."
-                backupProcessing = true
-                scope.launch {
-                    runCatching { GitHubUpdateChecker.latestRelease() }
-                        .onSuccess { latest ->
-                            currentVersion = readAppVersionName(context)
-                            hasNewVersion = GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)
-                            updateInfo = latest
-                        }
-                        .onFailure {
-                            Toast.makeText(context, it.message ?: "检查更新失败", Toast.LENGTH_SHORT).show()
-                        }
-                    backupProcessing = false
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !backupProcessing
-        ) {
-            Text("检查更新", color = TitleText)
-        }
+
+        // 账号（仅登录时显示）
         if (loggedIn) {
-            OutlinedButton(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !backupProcessing
-            ) {
-                Text("注销", color = TitleText)
+            SettingsSection(title = "账号") {
+                SettingsItem(
+                    icon = Icons.Default.Logout,
+                    title = "退出登录",
+                    titleColor = Color(0xFFD32F2F),
+                    onClick = { confirmLogout = true }
+                )
             }
         }
+
+        Spacer(Modifier.height(16.dp))
     }
 
+    // 处理中对话框
     if (backupProcessing) {
         AlertDialog(
             onDismissRequest = {},
@@ -312,6 +355,7 @@ private fun SettingsScreen(
         )
     }
 
+    // 版本更新对话框
     if (updateInfo != null) {
         UpdateResultDialog(
             latest = updateInfo!!,
@@ -321,6 +365,7 @@ private fun SettingsScreen(
         )
     }
 
+    // 清除缓存确认
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
@@ -338,7 +383,7 @@ private fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text("确认")
+                    Text("确认", color = Color(0xFFD32F2F))
                 }
             },
             dismissButton = {
@@ -348,6 +393,200 @@ private fun SettingsScreen(
             }
         )
     }
+
+    // 域名设置对话框
+    if (showDomainDialog) {
+        AlertDialog(
+            onDismissRequest = { showDomainDialog = false },
+            title = { Text("论坛域名") },
+            text = {
+                OutlinedTextField(
+                    value = forumDomain,
+                    onValueChange = { forumDomain = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("例如 www.xxx.com") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        runCatching {
+                            ForumDomainConfig.setDomain(forumDomain)
+                            CookiePersistence.clear()
+                        }.onSuccess {
+                            Toast.makeText(context, "域名已保存", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "域名保存失败", Toast.LENGTH_SHORT).show()
+                        }
+                        showDomainDialog = false
+                    }
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDomainDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 退出登录确认
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("退出登录") },
+            text = { Text("确定要退出当前账号吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLogout = false
+                        onLogout()
+                        // 返回首页并触发刷新
+                        context.startActivity(
+                            android.content.Intent(context, MainActivity::class.java)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        )
+                        (context as? android.app.Activity)?.finish()
+                    }
+                ) {
+                    Text("确定", color = Color(0xFFD32F2F))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Column {
+        Text(
+            text = title,
+            color = AccentGreen,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        OutlinedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
+            border = BorderStroke(0.dp, Color.Transparent)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    titleColor: Color = TitleText,
+    showArrow: Boolean = true,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier
+                        .clickable { onClick() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                } else {
+                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                }
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = titleColor,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 16.sp
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    color = MutedText,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        if (showArrow && onClick != null) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MutedText,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchItem(
+    icon: ImageVector,
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = TitleText,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            color = TitleText,
+            fontSize = 16.sp,
+            modifier = Modifier.weight(1f)
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun SettingsDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(1.dp)
+            .background(CardBorder)
+    )
 }
 
 @Composable
@@ -397,4 +636,3 @@ internal fun UpdateResultDialog(
         }
     )
 }
-

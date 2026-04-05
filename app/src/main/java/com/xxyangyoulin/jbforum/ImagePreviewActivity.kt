@@ -2,8 +2,8 @@ package com.xxyangyoulin.jbforum
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.os.Bundle
 import android.os.Parcelable
 import android.widget.Toast
@@ -11,12 +11,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -35,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,10 +49,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -64,10 +71,13 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.parcelize.Parcelize
 import okhttp3.Request
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Parcelize
@@ -208,23 +218,69 @@ private fun ImagePreviewScreen(
     val view = LocalView.current
     val pagerState = rememberPagerState(initialPage = initialIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)), pageCount = { images.size })
     val pageScales = remember(images) { mutableStateListOf<Float>().apply { repeat(images.size) { add(1f) } } }
+    val pageImageSizes = remember(images) { mutableStateListOf<IntSize?>().apply { repeat(images.size) { add(null) } } }
     val coroutineScope = rememberCoroutineScope()
     var actionTargetIndex by remember { mutableStateOf<Int?>(null) }
-    val enterProgress = remember { Animatable(if (launchSource != null) 0f else 1f) }
+    var detailTargetIndex by remember { mutableStateOf<Int?>(null) }
+    var overlayVisible by remember { mutableStateOf(true) }
+    var overlayInteractionNonce by remember { mutableStateOf(0) }
+    var enterTarget by remember { mutableStateOf(if (launchSource != null) 0f else 1f) }
+    var dismissDragProgress by remember { mutableStateOf(0f) }
+    val enterProgress by animateFloatAsState(
+        targetValue = enterTarget,
+        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+        finishedListener = { if (it == 0f) onDismiss() }
+    )
     var dismissing by remember { mutableStateOf(false) }
+    val hasLaunchSource = launchSource != null
 
     fun dismissWithAnimation() {
         if (dismissing) return
         dismissing = true
-        coroutineScope.launch {
-            if (launchSource != null && pagerState.currentPage == initialIndex) {
-                enterProgress.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                )
-            }
+        if (hasLaunchSource && pagerState.currentPage == initialIndex) {
+            enterTarget = 0f
+        } else {
             onDismiss()
         }
+    }
+
+    fun showOverlay() {
+        overlayVisible = true
+        overlayInteractionNonce += 1
+    }
+
+    fun toggleOverlay() {
+        overlayVisible = !overlayVisible
+        if (overlayVisible) overlayInteractionNonce += 1
+    }
+
+    // 启动进入动画
+    LaunchedEffect(Unit) {
+        if (launchSource != null) {
+            enterTarget = 1f
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, images) {
+        showOverlay()
+        val preloadIndexes = listOf(pagerState.currentPage - 1, pagerState.currentPage + 1)
+            .filter { it in images.indices }
+        preloadIndexes.forEach { index ->
+            imageLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(images[index].imageRef)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .networkCachePolicy(CachePolicy.ENABLED)
+                    .build()
+            )
+        }
+    }
+
+    LaunchedEffect(overlayVisible, overlayInteractionNonce, actionTargetIndex, detailTargetIndex) {
+        if (!overlayVisible || actionTargetIndex != null || detailTargetIndex != null) return@LaunchedEffect
+        delay(2500)
+        overlayVisible = false
     }
 
     DisposableEffect(view) {
@@ -234,27 +290,12 @@ private fun ImagePreviewScreen(
         onDispose {}
     }
 
-    DisposableEffect(launchSource, initialIndex) {
-        val job = coroutineScope.launch {
-            if (launchSource != null) {
-                enterProgress.snapTo(0f)
-                enterProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                )
-            } else {
-                enterProgress.snapTo(1f)
-            }
-        }
-        onDispose { job.cancel() }
-    }
-
     BackHandler(onBack = ::dismissWithAnimation)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = enterProgress.value))
+            .background(Color.Black.copy(alpha = enterProgress * (1f - dismissDragProgress.coerceIn(0f, 0.85f))))
     ) {
         HorizontalPager(
             state = pagerState,
@@ -264,8 +305,13 @@ private fun ImagePreviewScreen(
             var scale by remember(page) { mutableStateOf(1f) }
             var offsetX by remember(page) { mutableStateOf(0f) }
             var offsetY by remember(page) { mutableStateOf(0f) }
+            var dragOffsetY by remember(page) { mutableStateOf(0f) }
             var containerSize by remember(page) { mutableStateOf(IntSize.Zero) }
             var imageSize by remember(page) { mutableStateOf(IntSize.Zero) }
+            var loadFailed by remember(page) { mutableStateOf(false) }
+            var retryNonce by remember(page) { mutableStateOf(0) }
+            var zoomAnimationJob by remember(page) { mutableStateOf<Job?>(null) }
+            var dismissAnimationJob by remember(page) { mutableStateOf<Job?>(null) }
 
             fun clampOffsets(targetScale: Float, targetOffsetX: Float, targetOffsetY: Float): Pair<Float, Float> {
                 val containerWidth = containerSize.width.toFloat()
@@ -287,7 +333,92 @@ private fun ImagePreviewScreen(
                     targetOffsetY.coerceIn(-maxOffsetY, maxOffsetY)
             }
 
+            fun fitScale(): Float {
+                val containerWidth = containerSize.width.toFloat()
+                val containerHeight = containerSize.height.toFloat()
+                val imageWidth = imageSize.width.toFloat()
+                val imageHeight = imageSize.height.toFloat()
+                return if (imageWidth > 0f && imageHeight > 0f && containerWidth > 0f && containerHeight > 0f) {
+                    minOf(containerWidth / imageWidth, containerHeight / imageHeight)
+                } else {
+                    1f
+                }
+            }
+
+            fun lerp(start: Float, end: Float, progress: Float): Float {
+                return start + (end - start) * progress
+            }
+
+            fun animateZoom(targetScale: Float, targetOffsetX: Float, targetOffsetY: Float) {
+                zoomAnimationJob?.cancel()
+                val startScale = scale
+                val startOffsetX = offsetX
+                val startOffsetY = offsetY
+                zoomAnimationJob = coroutineScope.launch {
+                    animate(
+                        initialValue = 0f,
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { progress, _ ->
+                        scale = lerp(startScale, targetScale, progress)
+                        pageScales[page] = scale
+                        offsetX = lerp(startOffsetX, targetOffsetX, progress)
+                        offsetY = lerp(startOffsetY, targetOffsetY, progress)
+                    }
+                }
+            }
+
+            fun animateDragOffset(targetOffsetY: Float, onFinished: (() -> Unit)? = null) {
+                dismissAnimationJob?.cancel()
+                val startOffsetY = dragOffsetY
+                dismissAnimationJob = coroutineScope.launch {
+                    animate(
+                        initialValue = 0f,
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { progress, _ ->
+                        dragOffsetY = lerp(startOffsetY, targetOffsetY, progress)
+                        if (pagerState.currentPage == page && containerSize.height > 0) {
+                            dismissDragProgress = (abs(dragOffsetY) / (containerSize.height * 0.35f)).coerceIn(0f, 1f)
+                        }
+                    }
+                    onFinished?.invoke()
+                }
+            }
+
+            fun toggleZoom(tapOffset: Offset) {
+                val nextScale = if (scale > 1.01f) {
+                    1f
+                } else {
+                    val imageWidth = imageSize.width.toFloat()
+                    val imageHeight = imageSize.height.toFloat()
+                    val containerWidth = containerSize.width.toFloat()
+                    val containerHeight = containerSize.height.toFloat()
+                    if (imageWidth <= 0f || imageHeight <= 0f || containerWidth <= 0f || containerHeight <= 0f) {
+                        2.5f
+                    } else {
+                        val baseFitScale = fitScale()
+                        val widthFillScale = (containerWidth / (imageWidth * baseFitScale)).coerceAtLeast(1f)
+                        val heightFillScale = (containerHeight / (imageHeight * baseFitScale)).coerceAtLeast(1f)
+                        maxOf(widthFillScale, heightFillScale, 2f).coerceIn(1f, 5f)
+                    }
+                }
+                if (nextScale <= 1.01f) {
+                    animateZoom(1f, 0f, 0f)
+                    return
+                }
+                val containerCenter = Offset(containerSize.width / 2f, containerSize.height / 2f)
+                val scaleRatio = nextScale / scale
+                val rawOffsetX = (offsetX + containerCenter.x - tapOffset.x) * scaleRatio - (containerCenter.x - tapOffset.x)
+                val rawOffsetY = (offsetY + containerCenter.y - tapOffset.y) * scaleRatio - (containerCenter.y - tapOffset.y)
+                val (clampedX, clampedY) = clampOffsets(nextScale, rawOffsetX, rawOffsetY)
+                animateZoom(nextScale, clampedX, clampedY)
+            }
+
             val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+                zoomAnimationJob?.cancel()
+                dismissAnimationJob?.cancel()
+                showOverlay()
                 val updatedScale = (scale * zoomChange).coerceIn(1f, 5f)
                 scale = updatedScale
                 pageScales[page] = updatedScale
@@ -305,31 +436,46 @@ private fun ImagePreviewScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { containerSize = it }
-                    .combinedClickable(
-                        onClick = ::dismissWithAnimation,
-                        onDoubleClick = {
-                            if (scale > 1.01f) {
-                                scale = 1f
-                                pageScales[page] = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            } else {
-                                scale = 2.5f
-                                pageScales[page] = 2.5f
+                    .draggable(
+                        orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
+                        enabled = scale <= 1.01f,
+                        state = rememberDraggableState { delta ->
+                            dismissAnimationJob?.cancel()
+                            showOverlay()
+                            dragOffsetY += delta
+                            if (pagerState.currentPage == page && containerSize.height > 0) {
+                                dismissDragProgress = (abs(dragOffsetY) / (containerSize.height * 0.35f)).coerceIn(0f, 1f)
                             }
                         },
-                        onLongClick = { actionTargetIndex = page }
+                        onDragStopped = {
+                            val threshold = containerSize.height * 0.05f
+                            if (scale <= 1.01f && abs(dragOffsetY) >= threshold) {
+                                val target = if (dragOffsetY >= 0f) containerSize.height.toFloat() else -containerSize.height.toFloat()
+                                animateDragOffset(target) { onDismiss() }
+                            } else {
+                                animateDragOffset(0f)
+                            }
+                        }
                     )
+                    .pointerInput(page, scale, containerSize, imageSize) {
+                        detectTapGestures(
+                            onTap = { toggleOverlay() },
+                            onLongPress = {
+                                showOverlay()
+                                actionTargetIndex = page
+                            },
+                            onDoubleTap = { tapOffset ->
+                                showOverlay()
+                                toggleZoom(tapOffset)
+                            }
+                        )
+                    }
             ) {
                 val imageWidth = imageSize.width.toFloat()
                 val imageHeight = imageSize.height.toFloat()
                 val containerWidth = containerSize.width.toFloat()
                 val containerHeight = containerSize.height.toFloat()
-                val fitScale = if (imageWidth > 0f && imageHeight > 0f && containerWidth > 0f && containerHeight > 0f) {
-                    minOf(containerWidth / imageWidth, containerHeight / imageHeight)
-                } else {
-                    1f
-                }
+                val fitScale = fitScale()
                 val displayedWidth = if (imageWidth > 0f) imageWidth * fitScale else containerWidth
                 val displayedHeight = if (imageHeight > 0f) imageHeight * fitScale else containerHeight
                 val displayedCenterX = containerWidth / 2f
@@ -354,38 +500,68 @@ private fun ImagePreviewScreen(
                 } else {
                     0f
                 }
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(images[page].imageRef)
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .networkCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    imageLoader = imageLoader,
-                    onSuccess = { state ->
-                        imageSize = IntSize(
-                            state.result.drawable.intrinsicWidth.coerceAtLeast(1),
-                            state.result.drawable.intrinsicHeight.coerceAtLeast(1)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AsyncImage(
+                        model = remember(page, retryNonce, images[page].imageRef, launchSource, initialIndex) {
+                            ImageRequest.Builder(context)
+                                .data(images[page].imageRef)
+                                .crossfade(if (launchSource != null && page == initialIndex) 0 else 150)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .networkCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                        },
+                        imageLoader = imageLoader,
+                        onSuccess = { state ->
+                            loadFailed = false
+                            imageSize = IntSize(
+                                state.result.drawable.intrinsicWidth.coerceAtLeast(1),
+                                state.result.drawable.intrinsicHeight.coerceAtLeast(1)
+                            )
+                            pageImageSizes[page] = imageSize
+                            val (clampedX, clampedY) = clampOffsets(scale, offsetX, offsetY)
+                            offsetX = clampedX
+                            offsetY = clampedY
+                        },
+                        onError = {
+                            loadFailed = true
+                        },
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clipToBounds()
+                            .transformable(state = transformableState, canPan = { scale > 1.01f })
+                            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                            .graphicsLayer(
+                                scaleX = scale * (launchScaleX + (1f - launchScaleX) * enterProgress),
+                                scaleY = scale * (launchScaleY + (1f - launchScaleY) * enterProgress),
+                                translationX = launchTranslationX * (1f - enterProgress),
+                                translationY = launchTranslationY * (1f - enterProgress) + dragOffsetY
+                            )
+                    )
+                    if (loadFailed) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         )
-                        val (clampedX, clampedY) = clampOffsets(scale, offsetX, offsetY)
-                        offsetX = clampedX
-                        offsetY = clampedY
-                    },
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clipToBounds()
-                        .transformable(state = transformableState, canPan = { scale > 1.01f })
-                        .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                        .graphicsLayer(
-                            scaleX = scale * (launchScaleX + (1f - launchScaleX) * enterProgress.value),
-                            scaleY = scale * (launchScaleY + (1f - launchScaleY) * enterProgress.value),
-                            translationX = launchTranslationX * (1f - enterProgress.value),
-                            translationY = launchTranslationY * (1f - enterProgress.value)
-                        )
-                )
+                        {
+                            Text("图片加载失败", color = Color.White)
+                            OutlinedButton(
+                                onClick = {
+                                    loadFailed = false
+                                    retryNonce += 1
+                                },
+                                modifier = Modifier.height(44.dp)
+                            ) {
+                                Text("重试")
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -396,7 +572,7 @@ private fun ImagePreviewScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 42.dp)
-                .graphicsLayer(alpha = enterProgress.value)
+                .graphicsLayer(alpha = enterProgress * if (overlayVisible) 1f else 0f)
         )
     }
 
@@ -404,7 +580,6 @@ private fun ImagePreviewScreen(
         val image = images[page]
         AlertDialog(
             onDismissRequest = { actionTargetIndex = null },
-            title = { Text("图片操作") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
@@ -465,22 +640,64 @@ private fun ImagePreviewScreen(
                     }
                 }
             },
-            confirmButton = {},
-            dismissButton = {
+            confirmButton = {
                 TextButton(onClick = { actionTargetIndex = null }) {
                     Text("取消")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        actionTargetIndex = null
+                        detailTargetIndex = page
+                    }
+                ) {
+                    Text("图片详情", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    detailTargetIndex?.let { page ->
+        val image = images[page]
+        val details = remember(page, image.imageRef, pageImageSizes[page]) {
+            buildImageDetails(
+                imageRef = image.imageRef,
+                size = pageImageSizes[page]
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { detailTargetIndex = null },
+            title = { Text("图片详情") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("链接: ${details.link}")
+                    Text("格式: ${details.format}")
+                    Text("尺寸: ${details.dimensionText}")
+                    details.fileSizeText?.let { Text("大小: $it") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailTargetIndex = null }) {
+                    Text("关闭")
                 }
             }
         )
     }
 }
 
+private data class GalleryImagePayload(
+    val bytes: ByteArray,
+    val extension: String,
+    val mimeType: String
+)
+
 private suspend fun saveImageToGallery(
     context: Context,
     client: okhttp3.OkHttpClient,
     imageUrl: String
 ) {
-    val bytes = withContext(Dispatchers.IO) {
+    val payload = withContext(Dispatchers.IO) {
         if (imageUrl.startsWith("http")) {
             client.newCall(
                 Request.Builder()
@@ -489,18 +706,26 @@ private suspend fun saveImageToGallery(
                     .build()
             ).execute().use { response ->
                 if (!response.isSuccessful) error("下载图片失败: ${response.code}")
-                response.body?.bytes() ?: error("图片内容为空")
+                val bytes = response.body?.bytes() ?: error("图片内容为空")
+                val fallback = imageFormatFor(imageUrl)
+                val mimeType = response.body?.contentType()?.toString()?.substringBefore(';')
+                    ?.takeIf { it.startsWith("image/") }
+                    ?: fallback.mimeType
+                val extension = extensionForMimeType(mimeType) ?: fallback.extension
+                GalleryImagePayload(bytes, extension, mimeType)
             }
         } else {
-            java.io.File(imageUrl).takeIf { it.exists() }?.readBytes() ?: error("图片内容为空")
+            val file = java.io.File(imageUrl).takeIf { it.exists() } ?: error("图片内容为空")
+            val format = imageFormatFor(imageUrl)
+            GalleryImagePayload(file.readBytes(), format.extension, format.mimeType)
         }
     }
     withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val filename = "jbforum_${System.currentTimeMillis()}.jpg"
+        val filename = "jbforum_${System.currentTimeMillis()}.${payload.extension}"
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
-            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, payload.mimeType)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
                 put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
@@ -508,11 +733,70 @@ private suspend fun saveImageToGallery(
         }
         val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("无法创建相册文件")
-        resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("无法写入相册文件")
+        resolver.openOutputStream(uri)?.use { it.write(payload.bytes) } ?: error("无法写入相册文件")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             resolver.update(uri, android.content.ContentValues().apply {
                 put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
             }, null, null)
         }
+    }
+}
+
+private fun imageFormatFor(imageRef: String): GalleryImagePayload {
+    val normalized = imageRef.substringBefore('?').lowercase()
+    return when {
+        normalized.endsWith(".gif") -> GalleryImagePayload(ByteArray(0), "gif", "image/gif")
+        normalized.endsWith(".png") -> GalleryImagePayload(ByteArray(0), "png", "image/png")
+        normalized.endsWith(".webp") -> GalleryImagePayload(ByteArray(0), "webp", "image/webp")
+        normalized.endsWith(".jpeg") -> GalleryImagePayload(ByteArray(0), "jpeg", "image/jpeg")
+        else -> GalleryImagePayload(ByteArray(0), "jpg", "image/jpeg")
+    }
+}
+
+private fun extensionForMimeType(mimeType: String): String? {
+    return when (mimeType.lowercase()) {
+        "image/gif" -> "gif"
+        "image/png" -> "png"
+        "image/webp" -> "webp"
+        "image/jpeg" -> "jpg"
+        else -> null
+    }
+}
+
+private data class PreviewImageDetails(
+    val link: String,
+    val format: String,
+    val dimensionText: String,
+    val fileSizeText: String?
+)
+
+private fun buildImageDetails(imageRef: String, size: IntSize?): PreviewImageDetails {
+    val normalized = imageRef.substringBefore('?')
+    val cachedPreviewPath = ThreadImageCache.previewRef(imageRef).takeIf { it != imageRef }
+    val localFile = cachedPreviewPath?.let { path -> java.io.File(path) }?.takeIf { file -> file.exists() }
+        ?: java.io.File(imageRef).takeIf { file -> file.exists() }
+    val fileSizeText = localFile?.length()?.takeIf { it > 0 }?.let(::formatPreviewBytes)
+    val actualSize = size ?: localFile?.let { file ->
+        BitmapFactory.Options().apply { inJustDecodeBounds = true }.also {
+            BitmapFactory.decodeFile(file.absolutePath, it)
+        }.let { bounds ->
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) IntSize(bounds.outWidth, bounds.outHeight) else null
+        }
+    }
+    val format = normalized.substringAfterLast('.', "").ifBlank { "unknown" }.uppercase()
+    val dimensionText = actualSize?.let { "${it.width} x ${it.height}" } ?: "未知"
+    return PreviewImageDetails(
+        link = imageRef,
+        format = format,
+        dimensionText = dimensionText,
+        fileSizeText = fileSizeText
+    )
+}
+
+private fun formatPreviewBytes(bytes: Long): String {
+    return when {
+        bytes >= 1024 * 1024 -> String.format("%.2f MB", bytes / 1024f / 1024f)
+        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024f)
+        else -> "$bytes B"
     }
 }

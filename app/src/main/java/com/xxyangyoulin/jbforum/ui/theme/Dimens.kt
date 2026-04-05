@@ -37,7 +37,7 @@ object Dimens {
     val dialogMaxHeight = 560.dp
 
     // Floating button
-    val floatingButtonEdgePadding = 16.dp
+    val floatingButtonEdgePadding = 5.dp
     val floatingButtonStackSpacing = 66.dp
 
     // Component specific
@@ -48,6 +48,11 @@ object Dimens {
     val minButtonHeightLarge = 28.dp
     val minButtonHeightXLarge = 30.dp
     val cardElevation = 8.dp
+
+    // Content cards
+    val contentCardPadding = 10.dp
+    val contentCardSpacing = 10.dp
+    val contentCardCorner = 12.dp
 
     // Selection mode
     val selectionModeBottomPadding = 84.dp
