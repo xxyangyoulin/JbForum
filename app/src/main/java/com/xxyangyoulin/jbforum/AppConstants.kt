@@ -20,6 +20,7 @@ object AppConstants {
     const val CACHE_DIR_COIL = "forum_image_cache"
     const val CACHE_DIR_THREAD_ORIGINALS = "thread_image_originals"
     const val CACHE_DIR_THREAD_THUMBNAILS = "thread_image_thumbnails"
+    const val CACHE_DIR_THREAD_DETAILS = "thread_detail_cache"
 
     // 图片压缩阈值 (200KB)
     const val IMAGE_COMPRESS_THRESHOLD_BYTES = 200L * 1024L

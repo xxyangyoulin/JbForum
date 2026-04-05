@@ -238,6 +238,8 @@ class MainActivity : ComponentActivity() {
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
         BoardDiskCache.init(applicationContext)
+        ThreadListDiskCache.init(applicationContext)
+        ThreadDetailDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         GitHubUpdateChecker.init(applicationContext)

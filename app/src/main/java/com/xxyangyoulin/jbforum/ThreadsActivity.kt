@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,6 +87,7 @@ class ThreadsActivity : ComponentActivity() {
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
         BoardDiskCache.init(applicationContext)
+        ThreadListDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
@@ -95,6 +97,9 @@ class ThreadsActivity : ComponentActivity() {
         val searchKeyword = intent.getStringExtra(EXTRA_SEARCH_KEYWORD)
         setContent {
             val viewModel: MainViewModel = viewModel()
+            DisposableEffect(Unit) {
+                onDispose { viewModel.clearThreadListScroll() }
+            }
             ForumTheme {
                 ThreadsActivityScreen(
                     viewModel = viewModel,
@@ -167,20 +172,9 @@ internal fun ThreadsActivityScreen(
 
     LaunchedEffect(boardUrl, searchKeyword) {
         if (!searchKeyword.isNullOrBlank()) {
-            val hasCachedSearch =
-                state.selectedBoard?.title == "搜索：$searchKeyword" &&
-                    state.selectedBoard?.url?.contains("search.php?mod=forum") == true &&
-                    state.threads.isNotEmpty()
-            if (!hasCachedSearch) {
-                viewModel.searchThreads(searchKeyword)
-            }
+            viewModel.searchThreads(searchKeyword)
         } else if (boardUrl.isNotBlank()) {
-            val hasCachedBoard =
-                state.selectedBoard?.url == boardUrl &&
-                    state.threads.isNotEmpty()
-            if (!hasCachedBoard) {
-                viewModel.openBoard(Board(boardTitle, boardDescription, boardUrl))
-            }
+            viewModel.openBoard(Board(boardTitle, boardDescription, boardUrl))
         }
     }
 

@@ -28,7 +28,8 @@ object AppCacheManager {
             val otherDirs = listOf(
                 File(context.cacheDir, AppConstants.CACHE_DIR_COIL),
                 File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_ORIGINALS),
-                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_THUMBNAILS)
+                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_THUMBNAILS),
+                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_DETAILS)
             )
             val favoriteBytes = favoriteDirs.sumOf(::directorySize)
             CacheStats(
@@ -45,7 +46,8 @@ object AppCacheManager {
                 File(context.filesDir, AppConstants.CACHE_DIR_FAVORITE_THUMBNAILS),
                 File(context.cacheDir, AppConstants.CACHE_DIR_COIL),
                 File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_ORIGINALS),
-                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_THUMBNAILS)
+                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_THUMBNAILS),
+                File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_DETAILS)
             ).forEach(::deleteRecursively)
         }
     }

@@ -105,6 +105,7 @@ class ThreadDetailActivity : ComponentActivity() {
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
         BoardDiskCache.init(applicationContext)
+        ThreadDetailDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()

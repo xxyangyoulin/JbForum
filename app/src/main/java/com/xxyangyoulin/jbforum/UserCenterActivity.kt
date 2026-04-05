@@ -158,7 +158,7 @@ internal fun UserCenterActivityScreen(
             imageLoader = imageLoader,
             refreshing = state.loading,
             padding = padding,
-            onRefresh = { viewModel.openUserCenter(state.userCenterUid.ifBlank { uid }) },
+            onRefresh = { viewModel.openUserCenter(state.userCenterUid.ifBlank { uid }, forceRefresh = true) },
             onLoadMoreFavorites = viewModel::loadMoreUserFavorites,
             onLoadMoreThreads = viewModel::loadMoreUserThreads,
             onLoadMoreReplies = viewModel::loadMoreUserReplies,

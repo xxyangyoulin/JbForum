@@ -81,10 +81,12 @@ class MainViewModel(
     }
 
     fun openBoard(board: Board, forceRefresh: Boolean = false) = launchTask {
-        val cached = boardCache[board.url]
+        val memoryCached = boardCache[board.url]
+        val diskCached = if (memoryCached == null) ThreadListDiskCache.load(board.url) else null
+        val cached = memoryCached ?: diskCached?.let { BoardCache(it.threads, it.nextPageUrl) }
         _state.update {
             it.copy(
-                loading = cached == null || forceRefresh,
+                loading = true,
                 threads = cached?.threads ?: emptyList(),
                 threadsNextPageUrl = cached?.nextPageUrl,
                 selectedBoard = board,
@@ -94,11 +96,10 @@ class MainViewModel(
                 message = null
             )
         }
-        if (cached == null || forceRefresh) {
-            val page = repository.loadThreads(board.url)
-            boardCache[board.url] = BoardCache(page.threads, page.nextPageUrl)
-            _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
-        }
+        val page = repository.loadThreads(board.url)
+        boardCache[board.url] = BoardCache(page.threads, page.nextPageUrl)
+        ThreadListDiskCache.save(board.url, page)
+        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
     }
 
     fun searchThreads(keyword: String) = launchTask {
@@ -124,7 +125,9 @@ class MainViewModel(
 
     fun openThread(thread: ThreadSummary) = launchTask {
         val openedFromUserCenter = state.value.userCenterVisible
-        val cached = threadDetailCache[thread.url]
+        val memoryCached = threadDetailCache[thread.url]
+        val diskCachedDetail = if (memoryCached == null) ThreadDetailDiskCache.load(thread.url) else null
+        val cached = memoryCached ?: diskCachedDetail?.let { ThreadDetailCache(it, ThreadLinkRecognizer.extract(it)) }
         _state.update {
             it.copy(
                 loading = cached == null,
@@ -140,7 +143,7 @@ class MainViewModel(
         }
         val detail = repository.loadThread(thread.url)
         val links = ThreadLinkRecognizer.extract(detail)
-        threadDetailCache[thread.url] = ThreadDetailCache(detail, links)
+        cacheThreadDetail(detail, links)
         _state.update {
             it.copy(
                 threadDetail = detail,
@@ -236,7 +239,7 @@ class MainViewModel(
         repository.submitRemark(form, message)
         val refreshed = repository.loadThread(detail.url)
         val links = ThreadLinkRecognizer.extract(refreshed)
-        threadDetailCache[refreshed.url] = ThreadDetailCache(refreshed, links)
+        cacheThreadDetail(refreshed, links)
         _state.update {
             it.copy(
                 remarkForm = null,
@@ -260,7 +263,7 @@ class MainViewModel(
             totalPages = nextPage.totalPages
         )
         val links = ThreadLinkRecognizer.extract(mergedDetail)
-        threadDetailCache[mergedDetail.url] = ThreadDetailCache(mergedDetail, links)
+        cacheThreadDetail(mergedDetail, links)
         _state.update {
             it.copy(
                 loading = false,
@@ -276,7 +279,7 @@ class MainViewModel(
         repository.favoriteThread(detail)
         val refreshed = repository.loadThread(detail.url)
         val links = ThreadLinkRecognizer.extract(refreshed)
-        threadDetailCache[refreshed.url] = ThreadDetailCache(refreshed, links)
+        cacheThreadDetail(refreshed, links)
         _state.update {
             it.copy(
                 loading = false,
@@ -291,31 +294,57 @@ class MainViewModel(
         val nextPageUrl = state.value.threadsNextPageUrl ?: return@launchTask
         _state.update { it.copy(loading = true, message = null) }
         val page = repository.loadThreadsPage(nextPageUrl)
+        val mergedThreads = state.value.threads + page.threads
+        val mergedNextPageUrl = page.nextPageUrl
+        val boardUrl = state.value.selectedBoard?.url
+        if (!boardUrl.isNullOrBlank()) {
+            val mergedPage = ThreadListPage(threads = mergedThreads, nextPageUrl = mergedNextPageUrl)
+            boardCache[boardUrl] = BoardCache(mergedThreads, mergedNextPageUrl)
+            ThreadListDiskCache.save(boardUrl, mergedPage)
+        }
         _state.update {
             it.copy(
                 loading = false,
-                threads = it.threads + page.threads,
-                threadsNextPageUrl = page.nextPageUrl
+                threads = mergedThreads,
+                threadsNextPageUrl = mergedNextPageUrl
             )
         }
     }
 
-    fun openUserCenter(uid: String? = null) = launchTask {
+    fun openUserCenter(uid: String? = null, forceRefresh: Boolean = false) = launchTask {
         val session = state.value.session ?: error("请先登录")
         val targetUid = uid ?: session.uid.ifBlank { error("无法识别当前用户 UID") }
+        val cached = userCenterCache[targetUid]
         _state.update {
             it.copy(
-                loading = true,
+                loading = forceRefresh || cached == null,
                 message = null,
                 userCenterUid = targetUid,
                 userCenterVisible = true,
-                threadOpenedFromUserCenter = false
+                threadOpenedFromUserCenter = false,
+                userThreads = cached?.threads ?: emptyList(),
+                userThreadsNextPageUrl = cached?.threadsNextPageUrl,
+                userReplies = cached?.replies ?: emptyList(),
+                userRepliesNextPageUrl = cached?.repliesNextPageUrl,
+                userFavorites = cached?.favorites ?: emptyList(),
+                userFavoritesNextPageUrl = cached?.favoritesNextPageUrl,
+                userProfile = cached?.profile
             )
         }
+        if (cached != null && !forceRefresh) return@launchTask
         val threads = repository.loadUserThreads(targetUid, "thread")
         val replies = repository.loadUserThreads(targetUid, "reply")
         val favorites = if (targetUid == session.uid) repository.loadUserFavorites() else UserThreadListPage(emptyList(), null)
         val profile = repository.loadUserProfile(targetUid)
+        userCenterCache[targetUid] = UserCenterCache(
+            threads = threads.items,
+            threadsNextPageUrl = threads.nextPageUrl,
+            replies = replies.items,
+            repliesNextPageUrl = replies.nextPageUrl,
+            favorites = favorites.items,
+            favoritesNextPageUrl = favorites.nextPageUrl,
+            profile = profile
+        )
         _state.update {
             it.copy(
                 loading = false,
@@ -336,10 +365,21 @@ class MainViewModel(
         val nextPageUrl = state.value.userThreadsNextPageUrl ?: return@launchTask
         _state.update { it.copy(loading = true, message = null) }
         val page = repository.loadUserThreadsPage(nextPageUrl)
+        val merged = state.value.userThreads + page.items
+        val uid = state.value.userCenterUid
+        if (uid.isNotBlank()) {
+            val current = userCenterCache[uid]
+            if (current != null) {
+                userCenterCache[uid] = current.copy(
+                    threads = merged,
+                    threadsNextPageUrl = page.nextPageUrl
+                )
+            }
+        }
         _state.update {
             it.copy(
                 loading = false,
-                userThreads = it.userThreads + page.items,
+                userThreads = merged,
                 userThreadsNextPageUrl = page.nextPageUrl
             )
         }
@@ -349,10 +389,21 @@ class MainViewModel(
         val nextPageUrl = state.value.userRepliesNextPageUrl ?: return@launchTask
         _state.update { it.copy(loading = true, message = null) }
         val page = repository.loadUserThreadsPage(nextPageUrl)
+        val merged = state.value.userReplies + page.items
+        val uid = state.value.userCenterUid
+        if (uid.isNotBlank()) {
+            val current = userCenterCache[uid]
+            if (current != null) {
+                userCenterCache[uid] = current.copy(
+                    replies = merged,
+                    repliesNextPageUrl = page.nextPageUrl
+                )
+            }
+        }
         _state.update {
             it.copy(
                 loading = false,
-                userReplies = it.userReplies + page.items,
+                userReplies = merged,
                 userRepliesNextPageUrl = page.nextPageUrl
             )
         }
@@ -362,10 +413,21 @@ class MainViewModel(
         val nextPageUrl = state.value.userFavoritesNextPageUrl ?: return@launchTask
         _state.update { it.copy(loading = true, message = null) }
         val page = repository.loadUserFavoritesPage(nextPageUrl)
+        val merged = state.value.userFavorites + page.items
+        val uid = state.value.userCenterUid
+        if (uid.isNotBlank()) {
+            val current = userCenterCache[uid]
+            if (current != null) {
+                userCenterCache[uid] = current.copy(
+                    favorites = merged,
+                    favoritesNextPageUrl = page.nextPageUrl
+                )
+            }
+        }
         _state.update {
             it.copy(
                 loading = false,
-                userFavorites = it.userFavorites + page.items,
+                userFavorites = merged,
                 userFavoritesNextPageUrl = page.nextPageUrl
             )
         }
@@ -376,6 +438,16 @@ class MainViewModel(
         _state.update { it.copy(loading = true, message = null) }
         repository.deleteUserFavorite(actionUrl)
         val refreshed = repository.loadUserFavorites()
+        val uid = state.value.userCenterUid
+        if (uid.isNotBlank()) {
+            val current = userCenterCache[uid]
+            if (current != null) {
+                userCenterCache[uid] = current.copy(
+                    favorites = refreshed.items,
+                    favoritesNextPageUrl = refreshed.nextPageUrl
+                )
+            }
+        }
         _state.update {
             it.copy(
                 loading = false,
@@ -453,6 +525,15 @@ class MainViewModel(
         }
     }
 
+    fun clearThreadListScroll() {
+        _state.update {
+            it.copy(
+                threadListFirstVisibleItemIndex = 0,
+                threadListFirstVisibleItemScrollOffset = 0
+            )
+        }
+    }
+
     fun clearChallenge() {
         _state.update { it.copy(challenge = null) }
     }
@@ -489,6 +570,11 @@ class MainViewModel(
             }
         }
     }
+
+    private fun cacheThreadDetail(detail: ThreadDetail, links: List<DetectedLink>) {
+        threadDetailCache[detail.url] = ThreadDetailCache(detail, links)
+        ThreadDetailDiskCache.save(detail)
+    }
 }
 
 private object AppStateSnapshot {
@@ -512,6 +598,16 @@ private data class ThreadDetailCache(
     val detectedLinks: List<DetectedLink>
 )
 
+private data class UserCenterCache(
+    val threads: List<UserThreadItem>,
+    val threadsNextPageUrl: String?,
+    val replies: List<UserThreadItem>,
+    val repliesNextPageUrl: String?,
+    val favorites: List<UserThreadItem>,
+    val favoritesNextPageUrl: String?,
+    val profile: UserProfile?
+)
+
 private const val THREAD_DETAIL_CACHE_LIMIT = 20
 
 private val boardCache = object : LinkedHashMap<String, BoardCache>(16, 0.75f, true) {
@@ -522,5 +618,11 @@ private val boardCache = object : LinkedHashMap<String, BoardCache>(16, 0.75f, t
 private val threadDetailCache = object : LinkedHashMap<String, ThreadDetailCache>(16, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ThreadDetailCache>?): Boolean {
         return size > THREAD_DETAIL_CACHE_LIMIT
+    }
+}
+
+private val userCenterCache = object : LinkedHashMap<String, UserCenterCache>(16, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, UserCenterCache>?): Boolean {
+        return size > 20
     }
 }
