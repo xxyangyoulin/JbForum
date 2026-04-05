@@ -62,6 +62,10 @@ class MainViewModel(
                 )
             }
         }
+        val cachedBoards = repository.loadCachedBoards()
+        if (cachedBoards.isNotEmpty()) {
+            _state.update { it.copy(boards = cachedBoards) }
+        }
         launchTask {
             _state.update { it.copy(loading = true, message = null) }
             val boards = repository.loadBoards()

@@ -35,9 +35,12 @@ class ForumRepository {
                 val message = ForumHtmlParser.extractMessage(document)
                 error(message.ifBlank { "板块页解析失败：页面结构可能已变化，请下拉刷新重试" })
             }
+            BoardDiskCache.save(boards)
             boards
         }
     }
+
+    fun loadCachedBoards(): List<Board> = BoardDiskCache.load()
 
     /**
      * 加载帖子列表

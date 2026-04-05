@@ -4,3 +4,4 @@
 /app/build
 /captures
 *.iml
+release.keystore

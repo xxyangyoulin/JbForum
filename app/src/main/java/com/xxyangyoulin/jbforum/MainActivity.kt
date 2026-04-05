@@ -1,6 +1,7 @@
 package com.xxyangyoulin.jbforum
 
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -25,6 +26,7 @@ import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -213,12 +215,21 @@ private val FloatingButtonEdgePadding = 16.dp
 private val FloatingButtonStackSpacing = 66.dp
 private const val LogTag = "JbForum"
 
+private fun readAppVersionName(context: android.content.Context): String {
+    return runCatching {
+        val pm = context.packageManager
+        val pi = pm.getPackageInfo(context.packageName, 0)
+        pi.versionName.orEmpty().ifBlank { "0.0.0" }
+    }.getOrDefault("0.0.0")
+}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
@@ -248,6 +259,7 @@ class ThreadsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
@@ -297,6 +309,7 @@ class ThreadDetailActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
@@ -340,6 +353,7 @@ class UserCenterActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
         enableEdgeToEdge()
@@ -372,6 +386,7 @@ class LocalFavoritesActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         LocalLinkFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
@@ -407,6 +422,7 @@ class SettingsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
+        BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         LocalLinkFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
@@ -895,6 +911,10 @@ private fun ThreadDetailActivityScreen(
     var linksDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
+    val handleBack = {
+        viewModel.closeThread()
+        onBack()
+    }
 
     LaunchedEffect(thread.url) {
         if (thread.url.isNotBlank()) viewModel.openThread(thread)
@@ -914,6 +934,8 @@ private fun ThreadDetailActivityScreen(
             url = detail.url
         )
     }
+
+    BackHandler(onBack = handleBack)
 
     Scaffold(
         containerColor = AppBackground,
@@ -936,7 +958,7 @@ private fun ThreadDetailActivityScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = handleBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
                     }
                 },
@@ -2468,24 +2490,34 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var backupProcessing by remember { mutableStateOf(false) }
+    var backupProcessingText by remember { mutableStateOf("处理中...") }
+    var updateInfo by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
+    var hasNewVersion by remember { mutableStateOf(false) }
+    var currentVersion by remember { mutableStateOf(readAppVersionName(context)) }
+    var stats by remember { mutableStateOf(CacheStats(0L, 0L)) }
+    var loading by remember { mutableStateOf(true) }
+    var confirmClear by remember { mutableStateOf(false) }
+    var forumDomain by remember { mutableStateOf(ForumDomainConfig.getDomain()) }
+    var openThreadInWeb by remember { mutableStateOf(ForumDomainConfig.openThreadInWebDefault()) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
+        backupProcessingText = "正在导入备份..."
+        backupProcessing = true
         scope.launch {
             runCatching { BackupManager.importFromUri(context, uri) }
                 .onSuccess {
+                    forumDomain = ForumDomainConfig.getDomain()
+                    openThreadInWeb = ForumDomainConfig.openThreadInWebDefault()
                     onCacheCleared()
                     Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
                     Toast.makeText(context, it.message ?: "导入失败", Toast.LENGTH_SHORT).show()
                 }
+            backupProcessing = false
         }
     }
-    var stats by remember { mutableStateOf(CacheStats(0L, 0L)) }
-    var loading by remember { mutableStateOf(true) }
-    var confirmClear by remember { mutableStateOf(false) }
-    var forumDomain by remember { mutableStateOf(ForumDomainConfig.getDomain()) }
-    var openThreadInWeb by remember { mutableStateOf(ForumDomainConfig.openThreadInWebDefault()) }
 
     suspend fun refreshStats() {
         loading = true
@@ -2531,7 +2563,8 @@ private fun SettingsScreen(
                             Toast.makeText(context, it.message ?: "域名保存失败", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !backupProcessing
                 ) {
                     Text("保存域名", color = TitleText)
                 }
@@ -2546,7 +2579,8 @@ private fun SettingsScreen(
                         onCheckedChange = {
                             openThreadInWeb = it
                             ForumDomainConfig.setOpenThreadInWebDefault(it)
-                        }
+                        },
+                        enabled = !backupProcessing
                     )
                 }
             }
@@ -2569,36 +2603,125 @@ private fun SettingsScreen(
         }
         OutlinedButton(
             onClick = { confirmClear = true },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !backupProcessing
         ) {
             Text("清除缓存", color = TitleText)
         }
         OutlinedButton(
             onClick = {
+                backupProcessingText = "正在导出备份..."
+                backupProcessing = true
                 scope.launch {
                     runCatching { BackupManager.exportToDownloads(context) }
                         .onSuccess { Toast.makeText(context, "导出成功：$it", Toast.LENGTH_SHORT).show() }
                         .onFailure { Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_SHORT).show() }
+                    backupProcessing = false
                 }
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !backupProcessing
         ) {
             Text("导出备份", color = TitleText)
         }
         OutlinedButton(
             onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !backupProcessing
         ) {
             Text("导入备份", color = TitleText)
+        }
+        OutlinedButton(
+            onClick = {
+                backupProcessingText = "正在检查更新..."
+                backupProcessing = true
+                scope.launch {
+                    runCatching { GitHubUpdateChecker.latestRelease() }
+                        .onSuccess { latest ->
+                            currentVersion = readAppVersionName(context)
+                            hasNewVersion = GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)
+                            updateInfo = latest
+                        }
+                        .onFailure {
+                            Toast.makeText(context, it.message ?: "检查更新失败", Toast.LENGTH_SHORT).show()
+                        }
+                    backupProcessing = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !backupProcessing
+        ) {
+            Text("检查更新", color = TitleText)
         }
         if (loggedIn) {
             OutlinedButton(
                 onClick = onLogout,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !backupProcessing
             ) {
                 Text("注销", color = TitleText)
             }
         }
+    }
+
+    if (backupProcessing) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("请稍候") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp)
+                    Text(backupProcessingText, color = TitleText)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
+        )
+    }
+
+    if (updateInfo != null) {
+        val latest = updateInfo!!
+        val currentDisplayVersion = "v" + currentVersion.trim().removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
+        val latestDisplayVersion = "v" + latest.tagName.trim().removePrefix("v").removePrefix("V").ifBlank { latest.tagName }
+        AlertDialog(
+            onDismissRequest = { updateInfo = null },
+            title = { Text("版本检查") },
+            text = {
+                Text(
+                    if (hasNewVersion) {
+                        "发现新版本：$latestDisplayVersion\n当前版本：$currentDisplayVersion"
+                    } else {
+                        "当前已是最新版本\n当前版本：$currentDisplayVersion\n最新版本：$latestDisplayVersion"
+                    }
+                )
+            },
+            confirmButton = {
+                if (hasNewVersion) {
+                    TextButton(
+                        onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.htmlUrl)))
+                            updateInfo = null
+                        }
+                    ) {
+                        Text("前往下载")
+                    }
+                } else {
+                    TextButton(onClick = { updateInfo = null }) {
+                        Text("知道了")
+                    }
+                }
+            },
+            dismissButton = {
+                if (hasNewVersion) {
+                    TextButton(onClick = { updateInfo = null }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
     }
 
     if (confirmClear) {
