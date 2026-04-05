@@ -212,6 +212,7 @@ import pl.droidsonroids.gif.GifDrawable
 import pl.droidsonroids.gif.GifImageView
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.HeaderPill
 import com.xxyangyoulin.jbforum.ui.components.HeroCard
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
@@ -323,6 +324,18 @@ internal fun ForumApp(viewModel: MainViewModel) {
                         }
                     },
                     actions = {
+                        ForumMessageAction(
+                            status = state.forumMessageStatus,
+                            onClick = {
+                                val targetUrl = state.forumMessageStatus.noticeUrl
+                                    .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                                if (targetUrl.isNotBlank()) {
+                                    context.startActivity(
+                                        ForumNoticeActivity.createIntent(context, targetUrl)
+                                    )
+                                }
+                            }
+                        )
                         Box {
                             IconButton(onClick = { topMenuExpanded = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)

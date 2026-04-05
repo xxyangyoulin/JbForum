@@ -37,6 +37,7 @@ data class AppState(
     val remarkForm: RemarkForm? = null,
     val challenge: CaptchaChallenge? = null,
     val session: UserSession? = null,
+    val forumMessageStatus: ForumMessageStatus = ForumMessageStatus(),
     val loading: Boolean = false,
     val message: String? = null
 )
@@ -70,14 +71,22 @@ class MainViewModel(
             _state.update { it.copy(loading = true, message = null) }
             val boards = repository.loadBoards()
             val session = repository.currentSession()
-            _state.update { it.copy(boards = boards, session = session, localFavoriteImages = LocalImageFavorites.load(), loading = false) }
+            _state.update {
+                it.copy(
+                    boards = boards,
+                    session = session,
+                    localFavoriteImages = LocalImageFavorites.load(),
+                    forumMessageStatus = repository.latestMessageStatus(),
+                    loading = false
+                )
+            }
         }
     }
 
     fun refreshBoards() = launchTask {
         _state.update { it.copy(loading = true, message = null, selectedBoard = null, selectedThread = null, threadDetail = null, detectedLinks = emptyList(), userCenterVisible = false) }
         val boards = repository.loadBoards()
-        _state.update { it.copy(boards = boards, loading = false) }
+        _state.update { it.copy(boards = boards, forumMessageStatus = repository.latestMessageStatus(), loading = false) }
     }
 
     fun openBoard(board: Board, forceRefresh: Boolean = false) = launchTask {
@@ -99,7 +108,14 @@ class MainViewModel(
         val page = repository.loadThreads(board.url)
         boardCache[board.url] = BoardCache(page.threads, page.nextPageUrl)
         ThreadListDiskCache.save(board.url, page)
-        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+        _state.update {
+            it.copy(
+                threads = page.threads,
+                threadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false
+            )
+        }
     }
 
     fun searchThreads(keyword: String) = launchTask {
@@ -120,7 +136,14 @@ class MainViewModel(
             )
         }
         val page = repository.searchThreads(query)
-        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+        _state.update {
+            it.copy(
+                threads = page.threads,
+                threadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false
+            )
+        }
     }
 
     fun openThread(thread: ThreadSummary) = launchTask {
@@ -148,6 +171,7 @@ class MainViewModel(
             it.copy(
                 threadDetail = detail,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 loading = false,
                 threadRefreshing = false
             )
@@ -192,7 +216,15 @@ class MainViewModel(
         val challenge = state.value.challenge ?: error("请先获取验证码")
         _state.update { it.copy(loading = true, message = null) }
         val session = repository.login(username, password, captcha, challenge)
-        _state.update { it.copy(session = session, challenge = null, loading = false, message = "已登录为 ${session.username}") }
+        _state.update {
+            it.copy(
+                session = session,
+                challenge = null,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false,
+                message = "已登录为 ${session.username}"
+            )
+        }
         val current = state.value
         when {
             current.selectedThread != null -> openThread(current.selectedThread)
@@ -247,6 +279,7 @@ class MainViewModel(
                 remarkForm = null,
                 threadDetail = refreshed,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 loading = false,
                 message = "点评已提交"
             )
@@ -270,7 +303,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 threadDetail = mergedDetail,
-                detectedLinks = links
+                detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -287,6 +321,7 @@ class MainViewModel(
                 loading = false,
                 threadDetail = refreshed,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 message = "收藏成功"
             )
         }
@@ -308,7 +343,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 threads = mergedThreads,
-                threadsNextPageUrl = mergedNextPageUrl
+                threadsNextPageUrl = mergedNextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -357,6 +393,7 @@ class MainViewModel(
                 userFavorites = favorites.items,
                 userFavoritesNextPageUrl = favorites.nextPageUrl,
                 userProfile = profile,
+                forumMessageStatus = repository.latestMessageStatus(),
                 userCenterUid = targetUid,
                 userCenterVisible = true
             )
@@ -382,7 +419,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userThreads = merged,
-                userThreadsNextPageUrl = page.nextPageUrl
+                userThreadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -406,7 +444,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userReplies = merged,
-                userRepliesNextPageUrl = page.nextPageUrl
+                userRepliesNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -430,7 +469,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userFavorites = merged,
-                userFavoritesNextPageUrl = page.nextPageUrl
+                userFavoritesNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -455,6 +495,7 @@ class MainViewModel(
                 loading = false,
                 userFavorites = refreshed.items,
                 userFavoritesNextPageUrl = refreshed.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
                 message = "已删除收藏"
             )
         }
@@ -546,7 +587,7 @@ class MainViewModel(
 
     fun refreshSession() = launchTask {
         val session = repository.currentSession()
-        _state.update { it.copy(session = session) }
+        _state.update { it.copy(session = session, forumMessageStatus = repository.latestMessageStatus()) }
     }
 
     fun refreshLocalFavorites() {

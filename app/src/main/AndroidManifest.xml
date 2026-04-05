@@ -34,6 +34,10 @@
             android:exported="false"
             android:theme="@style/Theme.JbForum" />
         <activity
+            android:name=".ForumNoticeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JbForum" />
+        <activity
             android:name=".ThreadsActivity"
             android:exported="false"
             android:theme="@style/Theme.JbForum" />

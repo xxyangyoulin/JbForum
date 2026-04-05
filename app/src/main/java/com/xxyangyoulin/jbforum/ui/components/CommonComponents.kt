@@ -2,15 +2,25 @@ package com.xxyangyoulin.jbforum.ui.components
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.pager.rememberPagerState
 import com.xxyangyoulin.jbforum.AppColors
-import com.xxyangyoulin.jbforum.AppDimensions
+import com.xxyangyoulin.jbforum.ForumMessageStatus
 
 /**
  * 下拉刷新容器
@@ -100,5 +110,36 @@ fun SelectablePill(
             ),
             style = MaterialTheme.typography.bodySmall
         )
+    }
+}
+
+@Composable
+fun ForumMessageAction(
+    status: ForumMessageStatus,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = status.loggedIn,
+        modifier = modifier
+    ) {
+        BadgedBox(
+            badge = {
+                if (status.hasUnread) {
+                    Badge {
+                        if (status.unreadCount > 0) {
+                            Text(if (status.unreadCount > 99) "99+" else status.unreadCount.toString())
+                        }
+                    }
+                }
+            }
+        ) {
+            Icon(
+                Icons.Outlined.NotificationsNone,
+                contentDescription = null,
+                tint = if (status.loggedIn) AppColors.TitleText else AppColors.MutedText
+            )
+        }
     }
 }

@@ -13,6 +13,70 @@ import org.jsoup.nodes.TextNode
  */
 object ForumHtmlParser {
 
+    fun parseMessageStatus(document: Document): ForumMessageStatus? {
+        val uid = Regex("""discuz_uid\s*=\s*'(\d+)'""")
+            .find(document.html())
+            ?.groupValues
+            ?.getOrNull(1)
+            .orEmpty()
+        val loggedIn = uid.isNotBlank() && uid != "0"
+        if (!loggedIn) {
+            return ForumMessageStatus()
+        }
+        val noticeUrl = document.selectFirst("#nte_menu, #myprompt_menu a[href*=do=notice]")
+            ?.attr("href")
+            ?.let { absoluteUrl(it, document) }
+            .orEmpty()
+        val messageUrl = document.selectFirst("#msg_menu, #pm_ntc")
+            ?.attr("href")
+            ?.let { absoluteUrl(it, document) }
+            .orEmpty()
+        val unreadCount = document.selectFirst("#nte_menu i")
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+            ?: document.select("#myprompt_menu span.rq")
+                .sumOf { it.text().trim().toIntOrNull() ?: 0 }
+        val hasUnread = unreadCount > 0 || document.selectFirst("#pm_ntc.new, #myprompt.new") != null
+        return ForumMessageStatus(
+            loggedIn = true,
+            unreadCount = unreadCount,
+            hasUnread = hasUnread,
+            noticeUrl = noticeUrl,
+            messageUrl = messageUrl
+        )
+    }
+
+    fun parseNoticeItems(document: Document): List<ForumNoticeItem> {
+        return document.select(".nts dl[notice]").mapNotNull { item ->
+            val body = item.selectFirst(".ntc_body") ?: return@mapNotNull null
+            val authorLink = body.selectFirst("a[href*=home.php?mod=space][href*=uid=]")
+            val titleLink = body.select("a[href]").firstOrNull { link ->
+                val href = link.attr("href")
+                href.isNotBlank() &&
+                    !href.contains("home.php?mod=space") &&
+                    link.text().trim().isNotBlank() &&
+                    link.text().trim() != "查看"
+            } ?: return@mapNotNull null
+            val targetLink = body.select("a[href]").lastOrNull { link ->
+                val href = link.attr("href")
+                href.isNotBlank() &&
+                    !href.contains("home.php?mod=space") &&
+                    link.text().trim().isNotBlank()
+            } ?: return@mapNotNull null
+            ForumNoticeItem(
+                id = item.attr("notice").trim(),
+                author = authorLink?.text()?.trim().orEmpty(),
+                authorUid = extractUid(authorLink?.attr("href").orEmpty()),
+                authorAvatarUrl = item.selectFirst(".avt img")?.let(::imageUrl),
+                time = item.selectFirst("dt .xg1")?.text()?.replace('\u00A0', ' ')?.trim().orEmpty(),
+                content = body.text().replace("查看", "").trim(),
+                threadTitle = titleLink.text().trim(),
+                targetUrl = absoluteUrl(targetLink.attr("href"), document)
+            )
+        }
+    }
+
     /**
      * 解析板块列表
      */

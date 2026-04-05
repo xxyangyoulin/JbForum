@@ -65,6 +65,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.UserThreadCard
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
@@ -143,6 +144,20 @@ internal fun UserCenterActivityScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
                     }
+                },
+                actions = {
+                    ForumMessageAction(
+                        status = state.forumMessageStatus,
+                        onClick = {
+                            val targetUrl = state.forumMessageStatus.noticeUrl
+                                .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                            if (targetUrl.isNotBlank()) {
+                                context.startActivity(
+                                    ForumNoticeActivity.createIntent(context, targetUrl)
+                                )
+                            }
+                        }
+                    )
                 }
             )
         }

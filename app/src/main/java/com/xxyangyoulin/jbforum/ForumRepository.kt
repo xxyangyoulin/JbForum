@@ -13,11 +13,15 @@ import org.jsoup.nodes.Document
  */
 class ForumRepository {
     private val apiClient = ForumApiClient()
+    @Volatile
+    private var latestMessageStatus = ForumMessageStatus()
 
     /**
      * 获取用于图片加载的 OkHttpClient
      */
     fun imageClient(): okhttp3.OkHttpClient = apiClient.imageClient()
+
+    fun latestMessageStatus(): ForumMessageStatus = latestMessageStatus
 
     /**
      * 加载板块列表
@@ -35,6 +39,7 @@ class ForumRepository {
                 val message = ForumHtmlParser.extractMessage(document)
                 error(message.ifBlank { "板块页解析失败：页面结构可能已变化，请下拉刷新重试" })
             }
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             BoardDiskCache.save(boards)
             boards
         }
@@ -60,6 +65,7 @@ class ForumRepository {
                     error(message.ifBlank { "帖子列表解析失败：页面结构可能已变化，请下拉刷新重试" })
                 }
             }
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             val nextPageUrl = document.selectFirst(".pg a.nxt, .pgt a.nxt")
                 ?.attr("href")
                 ?.takeIf { it.isNotBlank() }
@@ -98,6 +104,7 @@ class ForumRepository {
                 referer = apiClient.absoluteUrl("search.php?mod=forum")
             )
             val document = Jsoup.parse(html, ForumDomainConfig.requireBaseUrl())
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             val threads = ForumHtmlParser.parseThreadSummaries(document)
             val nextPageUrl = document.selectFirst(".pg a.nxt, .pgs .pg a.nxt")
                 ?.attr("href")
@@ -122,6 +129,7 @@ class ForumRepository {
                 val message = ForumHtmlParser.extractMessage(document)
                 error(message.ifBlank { "帖子详情解析失败：页面结构可能已变化，请下拉刷新重试" })
             }
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             detail
         }
     }
@@ -211,6 +219,7 @@ class ForumRepository {
             val responseHtml = apiClient.postHtml(challenge.loginAction, body, apiClient.absoluteUrl("member.php?mod=logging&action=login"))
             val document = Jsoup.parse(responseHtml, ForumDomainConfig.requireBaseUrl())
             val sessionDoc = apiClient.getDocument("forum.php")
+            ForumHtmlParser.parseMessageStatus(sessionDoc)?.let { latestMessageStatus = it }
             val name = sessionDoc.selectFirst(".member-name a")?.text()?.trim().orEmpty()
             val uid = ForumHtmlParser.extractUid(sessionDoc.selectFirst(".member-name a")?.attr("href").orEmpty())
             if (name.isNotBlank() && name != "帳號") {
@@ -327,6 +336,7 @@ class ForumRepository {
         apiClient.withRequestLock {
             apiClient.ensureForumSession()
             val document = apiClient.getDocument(action, detail.url)
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             val text = document.text()
             if (
                 text.contains("收藏成功") ||
@@ -346,6 +356,7 @@ class ForumRepository {
         return apiClient.withRequestLock {
             apiClient.ensureForumSession()
             val document = apiClient.getDocument("forum.php")
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             val name = document.selectFirst(".member-name a")?.text()?.trim().orEmpty()
             name.takeIf { it.isNotBlank() && it != "帳號" }?.let {
                 UserSession(
@@ -361,6 +372,7 @@ class ForumRepository {
      */
     suspend fun logout() {
         apiClient.clearSession()
+        latestMessageStatus = ForumMessageStatus()
     }
 
     /**
@@ -379,6 +391,7 @@ class ForumRepository {
             if (document.selectFirst("#messagetext p")?.text()?.contains("請先登錄") == true) {
                 error("请先登录后查看用户中心")
             }
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             ForumHtmlParser.parseUserThreadListPage(document)
         }
     }
@@ -389,7 +402,9 @@ class ForumRepository {
     suspend fun loadUserThreadsPage(pageUrl: String): UserThreadListPage {
         return apiClient.withRequestLock {
             apiClient.ensureForumSession()
-            ForumHtmlParser.parseUserThreadListPage(apiClient.getDocument(pageUrl))
+            val document = apiClient.getDocument(pageUrl)
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
+            ForumHtmlParser.parseUserThreadListPage(document)
         }
     }
 
@@ -399,7 +414,9 @@ class ForumRepository {
     suspend fun loadUserFavorites(): UserThreadListPage {
         return apiClient.withRequestLock {
             apiClient.ensureForumSession()
-            ForumHtmlParser.parseUserFavoriteListPage(apiClient.getDocument("home.php?mod=space&do=favorite&view=me"))
+            val document = apiClient.getDocument("home.php?mod=space&do=favorite&view=me")
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
+            ForumHtmlParser.parseUserFavoriteListPage(document)
         }
     }
 
@@ -409,7 +426,9 @@ class ForumRepository {
     suspend fun loadUserFavoritesPage(pageUrl: String): UserThreadListPage {
         return apiClient.withRequestLock {
             apiClient.ensureForumSession()
-            ForumHtmlParser.parseUserFavoriteListPage(apiClient.getDocument(pageUrl))
+            val document = apiClient.getDocument(pageUrl)
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
+            ForumHtmlParser.parseUserFavoriteListPage(document)
         }
     }
 
@@ -417,6 +436,7 @@ class ForumRepository {
         apiClient.withRequestLock {
             apiClient.ensureForumSession()
             val document = apiClient.getDocument(actionUrl, apiClient.absoluteUrl("home.php?mod=space&do=favorite&view=me"))
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             val initialText = document.text()
             if (isFavoriteDeleteSuccess(initialText)) {
                 return@withRequestLock
@@ -431,6 +451,7 @@ class ForumRepository {
                 }.build()
                 val html = apiClient.postHtml(confirmAction, body, apiClient.absoluteUrl(actionUrl))
                 val resultDoc = Jsoup.parse(html, ForumDomainConfig.requireBaseUrl())
+                ForumHtmlParser.parseMessageStatus(resultDoc)?.let { latestMessageStatus = it }
                 val resultText = resultDoc.text()
                 if (isFavoriteDeleteSuccess(resultText) || !isFavoriteDeleteFailure(resultText)) {
                     return@withRequestLock
@@ -473,7 +494,17 @@ class ForumRepository {
             if (document.selectFirst("#messagetext p")?.text()?.contains("請先登錄") == true) {
                 error("请先登录后查看用户中心")
             }
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
             ForumHtmlParser.parseUserProfile(uid, document)
+        }
+    }
+
+    suspend fun loadNoticeItems(noticeUrl: String): List<ForumNoticeItem> {
+        return apiClient.withRequestLock {
+            apiClient.ensureForumSession()
+            val document = apiClient.getDocument(noticeUrl)
+            ForumHtmlParser.parseMessageStatus(document)?.let { latestMessageStatus = it }
+            ForumHtmlParser.parseNoticeItems(document)
         }
     }
 }

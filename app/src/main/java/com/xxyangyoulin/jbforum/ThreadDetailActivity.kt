@@ -101,6 +101,7 @@ import com.xxyangyoulin.jbforum.ui.components.ClickableName
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
@@ -309,6 +310,18 @@ internal fun ThreadDetailActivityScreen(
                     TextButton(onClick = viewModel::favoriteThread) {
                         Text("收藏", color = TitleText)
                     }
+                    ForumMessageAction(
+                        status = state.forumMessageStatus,
+                        onClick = {
+                            val targetUrl = state.forumMessageStatus.noticeUrl
+                                .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                            if (targetUrl.isNotBlank()) {
+                                context.startActivity(
+                                    ForumNoticeActivity.createIntent(context, targetUrl)
+                                )
+                            }
+                        }
+                    )
                     Box {
                         IconButton(onClick = { detailMenuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)

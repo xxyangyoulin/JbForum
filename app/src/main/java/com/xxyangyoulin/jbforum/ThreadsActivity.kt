@@ -81,6 +81,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.HeroCard
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
@@ -218,6 +219,18 @@ internal fun ThreadsActivityScreen(
                     }
                 },
                 actions = {
+                    ForumMessageAction(
+                        status = state.forumMessageStatus,
+                        onClick = {
+                            val targetUrl = state.forumMessageStatus.noticeUrl
+                                .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                            if (targetUrl.isNotBlank()) {
+                                context.startActivity(
+                                    ForumNoticeActivity.createIntent(context, targetUrl)
+                                )
+                            }
+                        }
+                    )
                     Box {
                         IconButton(onClick = { topMenuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
