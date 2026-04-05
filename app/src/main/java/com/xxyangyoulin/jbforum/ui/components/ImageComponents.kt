@@ -2,6 +2,7 @@ package com.xxyangyoulin.jbforum.ui.components
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +27,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.target.Target
 import com.xxyangyoulin.jbforum.AppColors
 import com.xxyangyoulin.jbforum.LocalImageFavorites
 import com.xxyangyoulin.jbforum.ThreadImageCache
@@ -162,17 +164,21 @@ fun PreparedDisplayImage(
                         androidx.compose.ui.layout.ContentScale.Crop -> ImageView.ScaleType.CENTER_CROP
                         else -> ImageView.ScaleType.FIT_CENTER
                     }
-                    imageLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(displayFile)
-                            .crossfade(true)
-                            .allowHardware(false)
-                            .bitmapConfig(Bitmap.Config.RGB_565)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .target(imageView)
-                            .build()
-                    )
+                    val dataKey = displayFile?.absolutePath ?: ""
+                    if (imageView.tag != dataKey) {
+                        imageView.tag = dataKey
+                        imageLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(displayFile)
+                                .crossfade(true)
+                                .allowHardware(false)
+                                .bitmapConfig(Bitmap.Config.RGB_565)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .target(imageView)
+                                .build()
+                        )
+                    }
                 }
             )
         }
@@ -219,16 +225,19 @@ fun CachedRemoteDisplayImage(
                     androidx.compose.ui.layout.ContentScale.Crop -> ImageView.ScaleType.CENTER_CROP
                     else -> ImageView.ScaleType.FIT_CENTER
                 }
-                imageLoader.enqueue(
-                    ImageRequest.Builder(context)
-                        .data(imageRef)
-                        .crossfade(true)
-                        .allowHardware(false)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .target(imageView)
-                        .build()
-                )
+                if (imageView.tag != imageRef) {
+                    imageView.tag = imageRef
+                    imageLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(imageRef)
+                            .crossfade(true)
+                            .allowHardware(false)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .target(imageView)
+                            .build()
+                    )
+                }
             }
         )
         return
