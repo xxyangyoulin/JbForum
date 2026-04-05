@@ -1,5 +1,6 @@
 package com.xxyangyoulin.jbforum
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -15,6 +16,26 @@ data class GitHubReleaseInfo(
 object GitHubUpdateChecker {
     private val client = OkHttpClient()
     private const val latestReleaseApi = "https://api.github.com/repos/xxyangyoulin/JbForum/releases/latest"
+    private const val PREFS_NAME = "github_update_prefs"
+    private const val KEY_LAST_CHECK_TIME = "last_check_time"
+    private const val MIN_INTERVAL_MS = 20 * 60 * 60 * 1000L // 20 hours
+
+    private lateinit var prefs: android.content.SharedPreferences
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun shouldAutoCheck(): Boolean {
+        if (!::prefs.isInitialized) return false
+        val last = prefs.getLong(KEY_LAST_CHECK_TIME, 0L)
+        return System.currentTimeMillis() - last >= MIN_INTERVAL_MS
+    }
+
+    fun recordCheckTime() {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putLong(KEY_LAST_CHECK_TIME, System.currentTimeMillis()).apply()
+    }
 
     suspend fun latestRelease(): GitHubReleaseInfo = withContext(Dispatchers.IO) {
         val request = Request.Builder()

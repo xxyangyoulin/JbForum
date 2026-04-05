@@ -232,6 +232,7 @@ class MainActivity : ComponentActivity() {
         BoardDiskCache.init(applicationContext)
         LocalImageFavorites.init(applicationContext)
         ThreadBrowseHistory.init(applicationContext)
+        GitHubUpdateChecker.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             val viewModel: MainViewModel = viewModel()
@@ -450,6 +451,22 @@ private fun ForumApp(viewModel: MainViewModel) {
     var logoutConfirmOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
+    var autoUpdateInfo by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
+    var autoHasNewVersion by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (GitHubUpdateChecker.shouldAutoCheck()) {
+            runCatching { GitHubUpdateChecker.latestRelease() }
+                .onSuccess { latest ->
+                    GitHubUpdateChecker.recordCheckTime()
+                    val currentVersion = readAppVersionName(context)
+                    if (GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)) {
+                        autoHasNewVersion = true
+                        autoUpdateInfo = latest
+                    }
+                }
+        }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -632,6 +649,15 @@ private fun ForumApp(viewModel: MainViewModel) {
                         Text("取消")
                     }
                 }
+            )
+        }
+
+        if (autoUpdateInfo != null && autoHasNewVersion) {
+            UpdateResultDialog(
+                latest = autoUpdateInfo!!,
+                currentVersion = readAppVersionName(context),
+                hasNewVersion = true,
+                onDismiss = { autoUpdateInfo = null }
             )
         }
     }
@@ -2451,6 +2477,54 @@ private fun ThreadListScreen(
 }
 
 @Composable
+private fun UpdateResultDialog(
+    latest: GitHubReleaseInfo,
+    currentVersion: String,
+    hasNewVersion: Boolean,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val currentDisplayVersion = "v" + currentVersion.trim().removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
+    val latestDisplayVersion = "v" + latest.tagName.trim().removePrefix("v").removePrefix("V").ifBlank { latest.tagName }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("版本检查") },
+        text = {
+            Text(
+                if (hasNewVersion) {
+                    "发现新版本：$latestDisplayVersion\n当前版本：$currentDisplayVersion"
+                } else {
+                    "当前已是最新版本\n当前版本：$currentDisplayVersion\n最新版本：$latestDisplayVersion"
+                }
+            )
+        },
+        confirmButton = {
+            if (hasNewVersion) {
+                TextButton(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.htmlUrl)))
+                        onDismiss()
+                    }
+                ) {
+                    Text("前往下载")
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text("知道了")
+                }
+            }
+        },
+        dismissButton = {
+            if (hasNewVersion) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        }
+    )
+}
+
+@Composable
 private fun SearchDialog(
     onDismiss: () -> Unit,
     onSearch: (String) -> Unit
@@ -2683,44 +2757,11 @@ private fun SettingsScreen(
     }
 
     if (updateInfo != null) {
-        val latest = updateInfo!!
-        val currentDisplayVersion = "v" + currentVersion.trim().removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
-        val latestDisplayVersion = "v" + latest.tagName.trim().removePrefix("v").removePrefix("V").ifBlank { latest.tagName }
-        AlertDialog(
-            onDismissRequest = { updateInfo = null },
-            title = { Text("版本检查") },
-            text = {
-                Text(
-                    if (hasNewVersion) {
-                        "发现新版本：$latestDisplayVersion\n当前版本：$currentDisplayVersion"
-                    } else {
-                        "当前已是最新版本\n当前版本：$currentDisplayVersion\n最新版本：$latestDisplayVersion"
-                    }
-                )
-            },
-            confirmButton = {
-                if (hasNewVersion) {
-                    TextButton(
-                        onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latest.htmlUrl)))
-                            updateInfo = null
-                        }
-                    ) {
-                        Text("前往下载")
-                    }
-                } else {
-                    TextButton(onClick = { updateInfo = null }) {
-                        Text("知道了")
-                    }
-                }
-            },
-            dismissButton = {
-                if (hasNewVersion) {
-                    TextButton(onClick = { updateInfo = null }) {
-                        Text("取消")
-                    }
-                }
-            }
+        UpdateResultDialog(
+            latest = updateInfo!!,
+            currentVersion = currentVersion,
+            hasNewVersion = hasNewVersion,
+            onDismiss = { updateInfo = null }
         )
     }
 

@@ -13,10 +13,15 @@ android {
     compileSdk = 36
     val versionNameFromCi = providers.gradleProperty("VERSION_NAME").orNull
     val versionCodeFromCi = providers.gradleProperty("VERSION_CODE").orNull?.toIntOrNull()
-    val releaseStoreFilePath = System.getenv("RELEASE_STORE_FILE")
-    val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
-    val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
-    val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+    val releaseStoreFilePath = providers.gradleProperty("RELEASE_STORE_FILE").orNull
+        ?: System.getenv("RELEASE_STORE_FILE")
+        ?: rootProject.file("release.keystore").takeIf { it.exists() }?.absolutePath
+    val releaseStorePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+        ?: System.getenv("RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+        ?: System.getenv("RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+        ?: System.getenv("RELEASE_KEY_PASSWORD")
     val hasReleaseSigning =
         !releaseStoreFilePath.isNullOrBlank() &&
             !releaseStorePassword.isNullOrBlank() &&
@@ -43,6 +48,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = false
             if (hasReleaseSigning) {
