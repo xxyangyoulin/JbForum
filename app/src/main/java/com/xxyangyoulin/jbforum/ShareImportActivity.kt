@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 class ShareImportActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        overridePendingTransition(0, 0)
         val uris = extractImageUris(intent)
         if (uris.isEmpty()) {
             Toast.makeText(this, "未收到可导入的图片", Toast.LENGTH_SHORT).show()
@@ -36,12 +35,6 @@ class ShareImportActivity : ComponentActivity() {
             finish()
         }
     }
-
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
-    }
-
     private fun extractImageUris(intent: Intent?): List<Uri> {
         if (intent == null) return emptyList()
         return when (intent.action) {

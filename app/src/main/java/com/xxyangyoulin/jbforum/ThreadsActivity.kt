@@ -1,6 +1,5 @@
 package com.xxyangyoulin.jbforum
 
-import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Toast
@@ -32,29 +31,32 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Collections
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -84,23 +86,25 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.materials.HazeMaterials
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
 import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.HeroCard
+import com.xxyangyoulin.jbforum.ui.components.PagingFooterStatus
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
+import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
@@ -111,6 +115,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class ThreadsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -167,8 +172,7 @@ class ThreadsActivity : ComponentActivity() {
 }
 
 @OptIn(
-    ExperimentalMaterial3Api::class,
-    dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class
+    ExperimentalMaterial3Api::class
 )
 @Composable
 internal fun ThreadsActivityScreen(
@@ -180,15 +184,16 @@ internal fun ThreadsActivityScreen(
     onBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val imageLoader = rememberForumImageLoader()
     val imageDownloadClient = rememberForumImageDownloadClient()
     var topMenuExpanded by remember { mutableStateOf(false) }
+    var threadRuleMenuExpanded by remember { mutableStateOf(false) }
     var searchDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
     var hideComposeFab by remember { mutableStateOf(false) }
-    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val hazeState = remember { HazeState() }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let { data ->
@@ -207,6 +212,16 @@ internal fun ThreadsActivityScreen(
         }
     }
 
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshSession()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(boardUrl, searchKeyword) {
         if (!searchKeyword.isNullOrBlank()) {
             viewModel.searchThreads(searchKeyword)
@@ -220,19 +235,10 @@ internal fun ThreadsActivityScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (supportsHaze) Color.Transparent else CardBackground,
-                    scrolledContainerColor = if (supportsHaze) Color.Transparent else CardBackground
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 ),
-                modifier = if (supportsHaze) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeMaterials.thin()
-                    ) {
-                        inputScale = HazeInputScale.Fixed(0.5f)
-                    }
-                } else {
-                    Modifier
-                },
+                modifier = Modifier.appTopBarHaze(hazeState),
                 title = {
                     Column {
                         Text(
@@ -251,10 +257,36 @@ internal fun ThreadsActivityScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 },
                 actions = {
+                    if (searchKeyword.isNullOrBlank() && (state.selectedBoard?.url ?: boardUrl).contains("forumdisplay")) {
+                        Box {
+                            IconButton(onClick = { threadRuleMenuExpanded = true }) {
+                                Icon(Icons.Outlined.FilterList, contentDescription = null, tint = TitleText)
+                            }
+                            StyledDropdownMenu(
+                                expanded = threadRuleMenuExpanded,
+                                onDismissRequest = { threadRuleMenuExpanded = false }
+                            ) {
+                                ThreadFilterRule.entries.forEach { rule ->
+                                    DropdownMenuItem(
+                                        text = { Text(rule.label) },
+                                        onClick = {
+                                            threadRuleMenuExpanded = false
+                                            val currentBoard = state.selectedBoard ?: Board(boardTitle, boardDescription, boardUrl)
+                                            val targetUrl = applyThreadFilterRule(currentBoard.url, rule)
+                                            viewModel.openBoard(
+                                                currentBoard.copy(url = targetUrl),
+                                                forceRefresh = true
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     ForumMessageAction(
                         status = state.forumMessageStatus,
                         onClick = {
@@ -269,7 +301,7 @@ internal fun ThreadsActivityScreen(
                     )
                     Box {
                         IconButton(onClick = { topMenuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
+                            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = TitleText)
                         }
                         StyledDropdownMenu(
                             expanded = topMenuExpanded,
@@ -281,7 +313,26 @@ internal fun ThreadsActivityScreen(
                                     topMenuExpanded = false
                                     searchDialogOpen = true
                                 },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("网页打开") },
+                                onClick = {
+                                    topMenuExpanded = false
+                                    val targetUrl = state.selectedBoard?.url ?: boardUrl
+                                    if (targetUrl.isNotBlank()) {
+                                        context.startActivity(
+                                            ThreadWebViewActivity.createIntent(
+                                                context = context,
+                                                url = targetUrl,
+                                                title = state.selectedBoard?.title ?: boardTitle.ifBlank { "帖子列表" }
+                                            )
+                                        )
+                                    } else {
+                                        Toast.makeText(context, "当前列表链接为空", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                leadingIcon = { Icon(Icons.Outlined.OpenInBrowser, contentDescription = null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("浏览历史") },
@@ -290,7 +341,7 @@ internal fun ThreadsActivityScreen(
                                     historyItems = ThreadBrowseHistory.load()
                                     historyPanelOpen = true
                                 },
-                                leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
+                                leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("本地收藏") },
@@ -298,7 +349,7 @@ internal fun ThreadsActivityScreen(
                                     topMenuExpanded = false
                                     context.startActivity(LocalFavoritesActivity.createIntent(context))
                                 },
-                                leadingIcon = { Icon(Icons.Default.Collections, contentDescription = null) }
+                                leadingIcon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("个人中心") },
@@ -307,7 +358,7 @@ internal fun ThreadsActivityScreen(
                                     context.startActivity(UserCenterActivity.createIntent(context))
                                 },
                                 enabled = state.session != null,
-                                leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
+                                leadingIcon = { Icon(Icons.Outlined.AccountCircle, contentDescription = null) }
                             )
                             DropdownMenuItem(
                                 text = { Text("设置") },
@@ -315,7 +366,7 @@ internal fun ThreadsActivityScreen(
                                     topMenuExpanded = false
                                     context.startActivity(android.content.Intent(context, SettingsActivity::class.java))
                                 },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) }
                             )
                         }
                     }
@@ -332,13 +383,19 @@ internal fun ThreadsActivityScreen(
                     enter = fadeIn() + scaleIn(initialScale = 0.85f),
                     exit = fadeOut() + scaleOut(targetScale = 0.85f)
                 ) {
-                    FloatingActionButton(
+                    SmallFloatingActionButton(
                         onClick = viewModel::prepareNewThread,
                         containerColor = AccentGreen,
                         contentColor = Color.White,
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 4.dp,
+                            pressedElevation = 6.dp,
+                            focusedElevation = 4.dp,
+                            hoveredElevation = 4.dp
+                        ),
                         modifier = Modifier.navigationBarsPadding()
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
+                        Icon(Icons.Outlined.Add, contentDescription = null)
                     }
                 }
             }
@@ -350,6 +407,8 @@ internal fun ThreadsActivityScreen(
                     board = board,
                     threads = state.threads,
                     nextPageUrl = state.threadsNextPageUrl,
+                    loadingMore = state.threadsLoadingMore,
+                    loadMoreError = state.threadsLoadMoreError,
                     imageLoader = imageLoader,
                     imageDownloadClient = imageDownloadClient,
                     initialFirstVisibleItemIndex = state.threadListFirstVisibleItemIndex,
@@ -371,8 +430,8 @@ internal fun ThreadsActivityScreen(
                     onCompose = {
                         if (state.session != null) viewModel.prepareNewThread() else viewModel.prepareLogin()
                     },
-                    modifier = if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier,
-                    drawBehindTopBar = supportsHaze
+                    modifier = Modifier.hazeSource(state = hazeState),
+                    drawBehindTopBar = true
                 )
             }
         }
@@ -429,11 +488,47 @@ internal fun ThreadsActivityScreen(
     }
 }
 
+private enum class ThreadFilterRule(val label: String) {
+    Latest("最新"),
+    Hot("熱門"),
+    HotPost("熱帖"),
+    Digest("精華")
+}
+
+private fun applyThreadFilterRule(url: String, rule: ThreadFilterRule): String {
+    val parsed = url.toHttpUrlOrNull() ?: return url
+    val builder = parsed.newBuilder()
+        .removeAllQueryParameters("filter")
+        .removeAllQueryParameters("orderby")
+        .removeAllQueryParameters("digest")
+        .removeAllQueryParameters("page")
+    when (rule) {
+        ThreadFilterRule.Latest -> {
+            builder.addQueryParameter("filter", "lastpost")
+            builder.addQueryParameter("orderby", "lastpost")
+        }
+        ThreadFilterRule.Hot -> {
+            builder.addQueryParameter("filter", "heat")
+            builder.addQueryParameter("orderby", "heats")
+        }
+        ThreadFilterRule.HotPost -> {
+            builder.addQueryParameter("filter", "hot")
+        }
+        ThreadFilterRule.Digest -> {
+            builder.addQueryParameter("filter", "digest")
+            builder.addQueryParameter("digest", "1")
+        }
+    }
+    return builder.build().toString()
+}
+
 @Composable
 internal fun ThreadListScreen(
     board: Board,
     threads: List<ThreadSummary>,
     nextPageUrl: String?,
+    loadingMore: Boolean,
+    loadMoreError: String?,
     imageLoader: ImageLoader,
     imageDownloadClient: okhttp3.OkHttpClient,
     initialFirstVisibleItemIndex: Int,
@@ -473,8 +568,14 @@ internal fun ThreadListScreen(
             onLoadMore = onLoadMore
         )
     }
-    LaunchedEffect(board, threads, nextPageUrl) {
-        adapter.submit(board = board, threads = threads, nextPageUrl = nextPageUrl)
+    LaunchedEffect(board, threads, nextPageUrl, loadingMore, loadMoreError) {
+        adapter.submit(
+            board = board,
+            threads = threads,
+            nextPageUrl = nextPageUrl,
+            loadingMore = loadingMore,
+            loadMoreError = loadMoreError
+        )
     }
     DisposableEffect(adapter) {
         onDispose { adapter.release() }
@@ -483,6 +584,7 @@ internal fun ThreadListScreen(
     RefreshContainer(
         refreshing = refreshing,
         onRefresh = onRefresh,
+        contentVersion = "${threads.size}-${nextPageUrl.orEmpty()}-${board.url}",
         indicatorTopPadding = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
         modifier = modifier
             .fillMaxSize()
@@ -519,7 +621,7 @@ internal fun ThreadListScreen(
                             outRect.left = androidContext.resources.displayMetrics.density.times(Dimens.contentCardPadding.value).toInt()
                             outRect.right = outRect.left
                             outRect.bottom = androidContext.resources.displayMetrics.density.times(Dimens.contentCardSpacing.value).toInt()
-                            outRect.top = if (position == 0) androidContext.resources.displayMetrics.density.times(Dimens.contentCardPadding.value).toInt() else 0
+                            outRect.top = 0
                         }
                     })
                     this.adapter = adapter.also { threadAdapter ->
@@ -615,9 +717,15 @@ private fun ThreadListItemCard(
                     )
                     Spacer(Modifier.weight(1f))
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (thread.isNewbiePost) {
+                            ThreadTagBadge(text = "新人帖")
+                        }
+                        if (thread.hasNewReply) {
+                            ThreadTagBadge(text = "New")
+                        }
                         thread.titleIconUrls.forEach { iconUrl ->
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
@@ -633,12 +741,15 @@ private fun ThreadListItemCard(
             }
             Spacer(Modifier.height(12.dp))
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     thread.title,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier
+                        .weight(1f)
+                        .alignByBaseline(),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = TitleText
@@ -646,6 +757,7 @@ private fun ThreadListItemCard(
                 thread.totalPages?.takeIf { it > 1 }?.let { totalPages ->
                     Text(
                         text = "共${totalPages}页",
+                        modifier = Modifier.alignByBaseline(),
                         style = MaterialTheme.typography.labelSmall,
                         color = AccentGreen
                     )
@@ -723,6 +835,20 @@ private fun ThreadListItemCard(
     }
 }
 
+@Composable
+private fun ThreadTagBadge(text: String) {
+    Text(
+        text = text,
+        color = AccentGreen,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(AccentGreen.copy(alpha = 0.14f))
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+    )
+}
+
 private class ThreadListAdapter(
     private var board: Board,
     private val imageLoader: ImageLoader,
@@ -734,12 +860,25 @@ private class ThreadListAdapter(
 ) : RecyclerView.Adapter<ThreadListAdapter.ComposeViewHolder>() {
     private var threads: List<ThreadSummary> = emptyList()
     private var nextPageUrl: String? = null
+    private var loadingMore: Boolean = false
+    private var loadMoreError: String? = null
+    private var autoRequestedNextPageUrl: String? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefetchedRefs = linkedSetOf<String>()
     var recyclerView: RecyclerView? = null
     var onBeforeOpenThread: (() -> Unit)? = null
 
-    fun submit(board: Board, threads: List<ThreadSummary>, nextPageUrl: String?) {
+    init {
+        setHasStableIds(true)
+    }
+
+    fun submit(
+        board: Board,
+        threads: List<ThreadSummary>,
+        nextPageUrl: String?,
+        loadingMore: Boolean,
+        loadMoreError: String?
+    ) {
         val oldBoard = this.board
         val oldThreads = this.threads
         val oldNextPageUrl = this.nextPageUrl
@@ -752,6 +891,11 @@ private class ThreadListAdapter(
 
         this.board = board
         this.threads = threads
+        this.loadingMore = loadingMore
+        this.loadMoreError = loadMoreError
+        if (this.nextPageUrl != nextPageUrl) {
+            autoRequestedNextPageUrl = null
+        }
         this.nextPageUrl = nextPageUrl
 
         if (appended) {
@@ -788,12 +932,16 @@ private class ThreadListAdapter(
     fun prefetchAroundVisible() {
         val recycler = recyclerView ?: return
         val lm = recycler.layoutManager as? LinearLayoutManager ?: return
-        val nextThreadIndex = (lm.findLastVisibleItemPosition() + 1) - 1
-        val nextThread = threads.getOrNull(nextThreadIndex) ?: return
-        nextThread.thumbnailUrls.forEach { imageRef ->
-            if (!prefetchedRefs.add(imageRef)) return@forEach
-            scope.launch {
-                runCatching { ThreadImageCache.ensureCached(imageDownloadClient, imageRef) }
+        if (threads.isEmpty()) return
+        val lastVisible = lm.findLastVisibleItemPosition().coerceAtLeast(0) - 1
+        val start = (lastVisible + 1).coerceIn(0, threads.lastIndex)
+        val end = (start + 2).coerceAtMost(threads.lastIndex)
+        for (index in start..end) {
+            threads[index].thumbnailUrls.forEach { imageRef ->
+                if (!prefetchedRefs.add(imageRef)) return@forEach
+                scope.launch {
+                    runCatching { ThreadImageCache.ensureCached(imageDownloadClient, imageRef) }
+                }
             }
         }
         while (prefetchedRefs.size > 120) {
@@ -808,11 +956,17 @@ private class ThreadListAdapter(
         scope.cancel()
     }
 
-    override fun getItemCount(): Int = 1 + threads.size + if (nextPageUrl != null) 1 else 0
+    override fun getItemCount(): Int = 1 + threads.size + if (threads.isNotEmpty()) 1 else 0
+
+    override fun getItemId(position: Int): Long = when (getItemViewType(position)) {
+        0 -> Long.MIN_VALUE
+        2 -> Long.MAX_VALUE
+        else -> threads[position - 1].id.hashCode().toLong()
+    }
 
     override fun getItemViewType(position: Int): Int = when {
         position == 0 -> 0
-        position == itemCount - 1 && nextPageUrl != null -> 2
+        position == itemCount - 1 -> 2
         else -> 1
     }
 
@@ -833,8 +987,18 @@ private class ThreadListAdapter(
                 HeroCard(title = board.title, subtitle = board.description.ifBlank { "讨论列表" })
             }
             2 -> holder.composeView.setContent {
-                OutlinedButton(onClick = onLoadMore, modifier = Modifier.fillMaxWidth()) {
-                    Text("浏览更多", color = TitleText)
+                PagingFooterStatus(
+                    loading = loadingMore,
+                    error = loadMoreError,
+                    hasMore = nextPageUrl != null,
+                    onRetry = onLoadMore,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                )
+                if (nextPageUrl != null && !loadingMore && loadMoreError == null && autoRequestedNextPageUrl != nextPageUrl) {
+                    autoRequestedNextPageUrl = nextPageUrl
+                    holder.composeView.post { onLoadMore() }
                 }
             }
             else -> {

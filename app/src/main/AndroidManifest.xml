@@ -67,7 +67,8 @@
             android:theme="@style/Theme.JbForum.ShareImport" />
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/Theme.JbForum.Starting">
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />

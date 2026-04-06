@@ -26,7 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,11 +60,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
+import com.xxyangyoulin.jbforum.ui.components.EndOfListIndicator
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.UserThreadCard
@@ -113,6 +118,7 @@ internal fun UserCenterActivityScreen(
     onBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val imageLoader = rememberForumImageLoader()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -130,6 +136,16 @@ internal fun UserCenterActivityScreen(
         }
     }
 
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshSession()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Scaffold(
         containerColor = AppBackground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -142,7 +158,7 @@ internal fun UserCenterActivityScreen(
                 title = { Text("用户中心", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 },
                 actions = {
@@ -237,6 +253,7 @@ internal fun UserCenterScreen(
     RefreshContainer(
         refreshing = refreshing || initialLoading,
         onRefresh = { onRefresh(tab) },
+        contentVersion = "${tab}-${profile?.uid.orEmpty()}-${threads.size}-${threadsNextPageUrl.orEmpty()}-${replies.size}-${repliesNextPageUrl.orEmpty()}-${favorites.size}-${favoritesNextPageUrl.orEmpty()}-${profileLoaded}-${currentTabLoaded}",
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
@@ -256,7 +273,18 @@ internal fun UserCenterScreen(
                             AuthorAvatar(imageLoader = imageLoader, imageUrl = it.avatarUrl, name = it.username, size = 52.dp)
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text(it.username, color = TitleText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(it.username, color = TitleText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                    if (it.userGroup.isNotBlank()) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = it.userGroup,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
                                 Text("UID: ${it.uid}", color = MutedText, style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -315,6 +343,8 @@ internal fun UserCenterScreen(
                                         onClick = onLoadMoreFavorites
                                     )
                                 }
+                            } else if (favorites.isNotEmpty()) {
+                                item { EndOfListIndicator(modifier = Modifier.padding(vertical = 12.dp)) }
                             }
                         }
                         "thread" -> {
@@ -328,6 +358,8 @@ internal fun UserCenterScreen(
                                         onClick = onLoadMoreThreads
                                     )
                                 }
+                            } else if (threads.isNotEmpty()) {
+                                item { EndOfListIndicator(modifier = Modifier.padding(vertical = 12.dp)) }
                             }
                         }
                         "reply" -> {
@@ -341,6 +373,8 @@ internal fun UserCenterScreen(
                                         onClick = onLoadMoreReplies
                                     )
                                 }
+                            } else if (replies.isNotEmpty()) {
+                                item { EndOfListIndicator(modifier = Modifier.padding(vertical = 12.dp)) }
                             }
                         }
                         else -> {

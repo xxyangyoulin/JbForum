@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -164,7 +164,7 @@ private fun ForumNoticeScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 },
                 actions = {
@@ -182,7 +182,7 @@ private fun ForumNoticeScreen(
                             }
                         }
                     ) {
-                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = TitleText)
+                        Icon(Icons.Outlined.OpenInBrowser, contentDescription = null, tint = TitleText)
                     }
                 }
             )
@@ -191,112 +191,118 @@ private fun ForumNoticeScreen(
         RefreshContainer(
             refreshing = loading,
             onRefresh = { scope.launch { load() } },
+            contentVersion = "${selectedTab.name}-${items.size}-${items.firstOrNull()?.id.orEmpty()}",
             modifier = Modifier.padding(padding)
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NoticeTab.entries.forEach { tab ->
-                            SelectablePill(
-                                text = tab.label,
-                                selected = selectedTab == tab,
-                                onClick = { selectedTab = tab }
-                            )
-                        }
-                    }
-                }
-                if (items.isEmpty() && !loading) {
-                    item {
-                        Text(
-                            text = "暂无提醒",
-                            color = MutedText,
-                            modifier = Modifier.padding(8.dp)
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 10.dp, end = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NoticeTab.entries.forEach { tab ->
+                        SelectablePill(
+                            text = tab.label,
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab }
                         )
                     }
                 }
-                items(items, key = { it.id }) { item ->
-                    OutlinedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (item.targetUrl.contains("viewthread") || item.targetUrl.contains("findpost")) {
-                                    openThreadByPreference(
-                                        context,
-                                        ThreadSummary(
-                                            id = item.targetUrl.substringAfter("tid=", "").substringBefore('&'),
-                                            title = item.content,
-                                            author = item.author,
-                                            authorUid = item.authorUid,
-                                            authorAvatarUrl = item.authorAvatarUrl,
-                                            publishedAt = item.time,
-                                            url = item.targetUrl
-                                        )
-                                    )
-                                } else {
-                                    context.startActivity(
-                                        ThreadWebViewActivity.createIntent(
-                                            context = context,
-                                            url = item.targetUrl,
-                                            title = "消息提醒"
-                                        )
-                                    )
-                                }
-                            },
-                        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                        border = androidx.compose.foundation.BorderStroke(0.dp, androidx.compose.ui.graphics.Color.Transparent)
-                    ) {
-                        Row(
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (items.isEmpty() && !loading) {
+                        item {
+                            Text(
+                                text = "暂无提醒",
+                                color = MutedText,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
+                    items(items, key = { it.id }) { item ->
+                        OutlinedCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.Top
+                                .clickable {
+                                    if (item.targetUrl.contains("viewthread") || item.targetUrl.contains("findpost")) {
+                                        openThreadByPreference(
+                                            context,
+                                            ThreadSummary(
+                                                id = item.targetUrl.substringAfter("tid=", "").substringBefore('&'),
+                                                title = item.content,
+                                                author = item.author,
+                                                authorUid = item.authorUid,
+                                                authorAvatarUrl = item.authorAvatarUrl,
+                                                publishedAt = item.time,
+                                                url = item.targetUrl
+                                            )
+                                        )
+                                    } else {
+                                        context.startActivity(
+                                            ThreadWebViewActivity.createIntent(
+                                                context = context,
+                                                url = item.targetUrl,
+                                                title = "消息提醒"
+                                            )
+                                        )
+                                    }
+                                },
+                            colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
+                            border = androidx.compose.foundation.BorderStroke(0.dp, androidx.compose.ui.graphics.Color.Transparent)
                         ) {
-                            AuthorAvatar(
-                                imageLoader = imageLoader,
-                                imageUrl = item.authorAvatarUrl,
-                                name = item.author,
-                                modifier = Modifier,
-                                size = 32.dp
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.author.ifBlank { "论坛提醒" },
-                                    color = TitleText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                AuthorAvatar(
+                                    imageLoader = imageLoader,
+                                    imageUrl = item.authorAvatarUrl,
+                                    name = item.author,
+                                    modifier = Modifier,
+                                    size = 32.dp
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = item.time,
-                                    color = MutedText,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = remember(item.content, item.threadTitle) {
-                                        buildAnnotatedString {
-                                            val title = item.threadTitle
-                                            val content = item.content
-                                            val start = if (title.isNotBlank()) content.indexOf(title) else -1
-                                            if (start >= 0) {
-                                                append(content.substring(0, start))
-                                                pushStyle(SpanStyle(color = AccentGreen))
-                                                append(title)
-                                                pop()
-                                                append(content.substring(start + title.length))
-                                            } else {
-                                                append(content)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.author.ifBlank { "论坛提醒" },
+                                        color = TitleText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = item.time,
+                                        color = MutedText,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = remember(item.content, item.threadTitle) {
+                                            buildAnnotatedString {
+                                                val title = item.threadTitle
+                                                val content = item.content
+                                                val start = if (title.isNotBlank()) content.indexOf(title) else -1
+                                                if (start >= 0) {
+                                                    append(content.substring(0, start))
+                                                    pushStyle(SpanStyle(color = AccentGreen))
+                                                    append(title)
+                                                    pop()
+                                                    append(content.substring(start + title.length))
+                                                } else {
+                                                    append(content)
+                                                }
                                             }
-                                        }
-                                    },
-                                    color = TitleText,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                        },
+                                        color = TitleText,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
                             }
                         }
                     }

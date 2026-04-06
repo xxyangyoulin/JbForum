@@ -60,6 +60,23 @@ object ForumHtmlParser {
         )
     }
 
+    fun parseOnlineMembersText(document: Document): String {
+        val title = document.selectFirst("#online h3 > strong")?.text()?.trim().orEmpty()
+        val stats = document.selectFirst("#online h3 > span")?.text()?.replace('\u00A0', ' ')?.trim().orEmpty()
+        if (title.isBlank() || stats.isBlank()) return ""
+        val onlineCount = Regex("""[總总]計\s*(\d+)\s*人在[線线]""")
+            .find(stats)
+            ?.groupValues
+            ?.getOrNull(1)
+            .orEmpty()
+        if (onlineCount.isBlank()) return ""
+        val normalizedTitle = when (title) {
+            "在线会员" -> "在線會員"
+            else -> title
+        }
+        return "$normalizedTitle - 總計 $onlineCount 人在線"
+    }
+
     fun parseNoticeItems(document: Document): List<ForumNoticeItem> {
         return document.select(".nts dl[notice]").mapNotNull { item ->
             val body = item.selectFirst(".ntc_body") ?: return@mapNotNull null
@@ -132,6 +149,10 @@ object ForumHtmlParser {
                 ?.text()
                 ?.trim()
                 .orEmpty()
+            val isNewbiePost = row.select("div.post_infolist_tit img[alt]")
+                .any { it.attr("alt").trim().contains("新人帖") }
+            val hasNewReply = row.select("div.post_infolist_tit a.xi1")
+                .any { it.text().trim().equals("new", ignoreCase = true) }
             ThreadSummary(
                 id = row.id().removePrefix("normalthread_"),
                 title = titleLink.text().trim(),
@@ -147,6 +168,8 @@ object ForumHtmlParser {
                 repliesText = repliesText,
                 lastReplyAuthor = lastReplyAuthor,
                 lastReplyTime = lastReplyTime,
+                isNewbiePost = isNewbiePost,
+                hasNewReply = hasNewReply,
                 metaText = ""
             )
         }
@@ -349,10 +372,14 @@ object ForumHtmlParser {
         val username = document.selectFirst("#uhd .mt, .u_profile .mbn")?.ownText()?.trim()
             ?.ifBlank { null }
             ?: document.selectFirst("#uhd .mt")?.text()?.trim().orEmpty()
+        val userGroup = document.selectFirst(
+            "li:has(em:matchesOwn((用戶組|用户组))) span.xi2 a, li:has(em:matchesOwn((用戶組|用户组))) span.xi2"
+        )?.text()?.trim().orEmpty()
         return UserProfile(
             username = username,
             uid = document.selectFirst(".xw0")?.text()?.substringAfter("UID:")?.substringBefore(')')?.trim().orEmpty().ifBlank { uid },
             avatarUrl = document.selectFirst("#uhd .avt img, .u_profile .avatar img")?.absUrl("src")?.ifBlank { null },
+            userGroup = userGroup,
             stats = document.select("ul.cl.bbda.pb m li, ul.cl.bbda.pbm.mbm li, ul.cl.bbda li a").mapNotNull { element ->
                 val text = element.text().trim()
                 text.takeIf { it.isNotBlank() }?.let { "统计" to it }

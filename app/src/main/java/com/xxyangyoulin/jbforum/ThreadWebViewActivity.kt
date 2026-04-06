@@ -31,10 +31,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.xxyangyoulin.jbforum.ui.components.ForumLinkActionDialog
 import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import okhttp3.Cookie
@@ -264,19 +265,19 @@ private fun ThreadWebViewScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color(0xFF1F2937))
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = Color(0xFF1F2937))
                         }
                     },
                     actions = {
                         IconButton(onClick = onRefresh) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF1F2937))
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, tint = Color(0xFF1F2937))
                         }
                         IconButton(onClick = { openInBrowserConfirmOpen = true }) {
-                            Icon(Icons.Default.Language, contentDescription = null, tint = Color(0xFF1F2937))
+                            Icon(Icons.Outlined.Language, contentDescription = null, tint = Color(0xFF1F2937))
                         }
                         Box {
                             IconButton(onClick = { topMenuExpanded = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = null, tint = Color(0xFF1F2937))
+                                Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = Color(0xFF1F2937))
                             }
                             StyledDropdownMenu(
                                 expanded = topMenuExpanded,
@@ -332,6 +333,8 @@ private fun ThreadWebViewScreen(
         longPressTarget?.let { target ->
             WebLongPressDialog(
                 target = target,
+                sourceTitle = pageTitle,
+                sourceUrl = url,
                 onDismiss = { longPressTarget = null }
             )
         }
@@ -404,10 +407,10 @@ private fun ThreadWebViewContent(
                     enqueueWebDownload(
                         context = context,
                         downloadUrl = downloadUrl,
-                        userAgent = userAgent ?: settings.userAgentString,
+                        userAgent = userAgent,
                         contentDisposition = contentDisposition,
                         mimeType = mimeType,
-                        referer = url ?: ForumDomainConfig.requireBaseUrl()
+                        referer = url
                     )
                 }
                 setOnLongClickListener {
@@ -425,6 +428,13 @@ private fun ThreadWebViewContent(
                         val targetUrl = request.url.toString()
                         if (targetUrl.startsWith("magnet:", ignoreCase = true)) {
                             onMagnetLinkClick(targetUrl)
+                            return true
+                        }
+                        val scheme = request.url.scheme?.lowercase()
+                        if (scheme != "http" && scheme != "https") {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                            }
                             return true
                         }
                         view.loadUrl(
@@ -504,7 +514,7 @@ private fun enqueueWebDownload(
 }
 
 private fun WebView.longPressTarget(): WebLongPressTarget? {
-    val result = hitTestResult ?: return null
+    val result = hitTestResult
     return when (result.type) {
         WebView.HitTestResult.SRC_ANCHOR_TYPE -> result.extra?.takeIf { it.isNotBlank() }?.let {
             WebLongPressTarget(url = it, isImage = false)
@@ -546,138 +556,102 @@ private fun WebMagnetLinkDialog(
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        text = {
-            Column {
-                Text(
-                    text = "外部打开",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
-                )
-                Text(
-                    text = "复制",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("link", link))
-                            android.widget.Toast.makeText(context, "已复制链接", android.widget.Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
-                )
-                Text(
-                    text = "收藏",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            runCatching {
-                                LocalLinkFavorites.add(
-                                    value = link,
-                                    type = "磁力",
-                                    sourceThreadTitle = sourceTitle,
-                                    sourceThreadUrl = sourceUrl
-                                )
-                            }.onSuccess {
-                                android.widget.Toast.makeText(context, "已收藏磁力链接", android.widget.Toast.LENGTH_SHORT).show()
-                            }.onFailure {
-                                android.widget.Toast.makeText(context, it.message ?: "收藏失败", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
-                )
-            }
+    ForumLinkActionDialog(
+        link = link,
+        type = "磁力",
+        message = link,
+        onDismiss = onDismiss,
+        onExternalOpen = { externalLink ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(externalLink)))
+            onDismiss()
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+        onFavorite = {
+            runCatching {
+                LocalLinkFavorites.add(
+                    value = link,
+                    type = "磁力",
+                    sourceThreadTitle = sourceTitle,
+                    sourceThreadUrl = sourceUrl
+                )
+            }.onSuccess {
+                android.widget.Toast.makeText(context, "链接已收藏", android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                android.widget.Toast.makeText(context, it.message ?: "收藏失败", android.widget.Toast.LENGTH_SHORT).show()
             }
-        }
+            onDismiss()
+        },
+        onCopy = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("link", link))
+            android.widget.Toast.makeText(context, "已复制链接", android.widget.Toast.LENGTH_SHORT).show()
+            onDismiss()
+        },
+        showOpenOverride = false
     )
 }
 
 @Composable
 private fun WebLongPressDialog(
     target: WebLongPressTarget,
+    sourceTitle: String,
+    sourceUrl: String,
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(if (target.isImage) "图片操作" else "链接操作")
-        },
-        text = {
-            Column {
-                Text(
-                    text = if (target.isImage) "预览图片" else "打开链接",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (target.isImage) {
-                                context.startActivity(
-                                    ImagePreviewActivity.createIntent(
-                                        context = context,
-                                        images = listOf(PreviewImageItem(imageRef = target.url, canFavorite = false)),
-                                        initialIndex = 0
-                                    )
-                                )
-                            } else {
-                                context.startActivity(
-                                    ThreadWebViewActivity.createIntent(
-                                        context = context,
-                                        url = target.url,
-                                        title = "网页"
-                                    )
-                                )
-                            }
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
+    val detectedType = if (target.isImage) null else ThreadLinkRecognizer.detectTypeForSelection(target.url)
+    ForumLinkActionDialog(
+        link = target.url,
+        type = detectedType,
+        message = target.url,
+        onDismiss = onDismiss,
+        openText = if (target.isImage) "预览图片" else "打开",
+        onOpen = {
+            if (target.isImage) {
+                context.startActivity(
+                    ImagePreviewActivity.createIntent(
+                        context = context,
+                        images = listOf(PreviewImageItem(imageRef = target.url, canFavorite = false)),
+                        initialIndex = 0
+                    )
                 )
-                Text(
-                    text = "复制链接",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("url", target.url))
-                            android.widget.Toast.makeText(context, "已复制链接", android.widget.Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
-                )
-                Text(
-                    text = "外部浏览器打开",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target.url)))
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    color = Color(0xFF1F2937)
+            } else {
+                context.startActivity(
+                    ThreadWebViewActivity.createIntent(
+                        context = context,
+                        url = target.url,
+                        title = "网页"
+                    )
                 )
             }
+            onDismiss()
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+        onExternalOpen = { externalLink ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(externalLink)))
+            onDismiss()
+        },
+        onFavorite = {
+            runCatching {
+                LocalLinkFavorites.add(
+                    value = target.url,
+                    type = detectedType ?: "URL",
+                    sourceThreadTitle = sourceTitle,
+                    sourceThreadUrl = sourceUrl
+                )
+            }.onSuccess {
+                android.widget.Toast.makeText(context, "链接已收藏", android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                android.widget.Toast.makeText(context, it.message ?: "收藏失败", android.widget.Toast.LENGTH_SHORT).show()
             }
-        }
+            onDismiss()
+        },
+        onCopy = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("url", target.url))
+            android.widget.Toast.makeText(context, "已复制链接", android.widget.Toast.LENGTH_SHORT).show()
+            onDismiss()
+        },
+        showOpenOverride = true,
+        showExternalOpenOverride = true,
+        showFavoriteOverride = !target.isImage
     )
 }

@@ -28,18 +28,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -118,7 +118,7 @@ private fun SettingsActivityScreen(
                 title = { Text("设置", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 }
             )
@@ -195,13 +195,13 @@ private fun SettingsScreen(
         // 通用设置
         SettingsSection(title = "通用设置") {
             SettingsItem(
-                icon = Icons.Default.Language,
+                icon = Icons.Outlined.Language,
                 title = "论坛域名",
                 subtitle = forumDomain.ifBlank { "未设置" },
                 onClick = { showDomainDialog = true }
             )
             SettingsSwitchItem(
-                icon = Icons.Default.Language,
+                icon = Icons.Outlined.Language,
                 title = "默认网页浏览帖子",
                 checked = openThreadInWeb,
                 onCheckedChange = {
@@ -262,14 +262,14 @@ private fun SettingsScreen(
             SettingsDivider()
 
             SettingsItem(
-                icon = Icons.Default.Delete,
+                icon = Icons.Outlined.Delete,
                 title = "清除缓存",
                 titleColor = Color(0xFFD32F2F),
                 onClick = { confirmClear = true }
             )
             SettingsDivider()
             SettingsItem(
-                icon = Icons.Default.CloudUpload,
+                icon = Icons.Outlined.CloudUpload,
                 title = "导出备份",
                 onClick = {
                     backupProcessingText = "正在导出备份..."
@@ -284,7 +284,7 @@ private fun SettingsScreen(
             )
             SettingsDivider()
             SettingsItem(
-                icon = Icons.Default.CloudDownload,
+                icon = Icons.Outlined.CloudDownload,
                 title = "导入备份",
                 onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }
             )
@@ -293,14 +293,14 @@ private fun SettingsScreen(
         // 关于
         SettingsSection(title = "关于") {
             SettingsItem(
-                icon = Icons.Default.Info,
+                icon = Icons.Outlined.Info,
                 title = "当前版本",
                 subtitle = "v${currentVersion}",
                 showArrow = false
             )
             SettingsDivider()
             SettingsItem(
-                icon = Icons.Default.Refresh,
+                icon = Icons.Outlined.Refresh,
                 title = "检查更新",
                 onClick = {
                     backupProcessingText = "正在检查更新..."
@@ -325,7 +325,7 @@ private fun SettingsScreen(
         if (loggedIn) {
             SettingsSection(title = "账号") {
                 SettingsItem(
-                    icon = Icons.Default.Logout,
+                    icon = Icons.AutoMirrored.Filled.Logout,
                     title = "退出登录",
                     titleColor = Color(0xFFD32F2F),
                     onClick = { confirmLogout = true }

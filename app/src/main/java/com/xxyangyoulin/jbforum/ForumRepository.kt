@@ -15,6 +15,8 @@ class ForumRepository {
     private val apiClient = ForumApiClient()
     @Volatile
     private var latestSession: UserSession? = null
+    @Volatile
+    private var latestOnlineMembersText: String = ""
 
     /**
      * 获取用于图片加载的 OkHttpClient
@@ -23,6 +25,7 @@ class ForumRepository {
 
     fun latestMessageStatus(): ForumMessageStatus = MessageStatusStore.value()
     fun latestSession(): UserSession? = latestSession
+    fun latestOnlineMembersText(): String = latestOnlineMembersText
 
     private fun updateLatestMessageStatus(status: ForumMessageStatus) {
         val current = MessageStatusStore.value()
@@ -52,6 +55,7 @@ class ForumRepository {
             }
             ForumHtmlParser.parseMessageStatus(document)?.let(::updateLatestMessageStatus)
             latestSession = ForumHtmlParser.parseCurrentSession(document)
+            latestOnlineMembersText = ForumHtmlParser.parseOnlineMembersText(document)
             BoardDiskCache.save(boards)
             boards
         }
@@ -239,7 +243,7 @@ class ForumRepository {
             }
 
             val successText = document.text()
-            if (successText.contains("歡迎您回來") || successText.contains("欢迎您回来") || apiClient.cookieJar.hasCookie("4fJN_2132_auth")) {
+            if (successText.contains("歡迎您回來") || successText.contains("欢迎您回来") || apiClient.hasCookie("4fJN_2132_auth")) {
                 val fallbackName = sessionDoc.selectFirst(".member-name a")?.text()?.trim().orEmpty()
                 val fallbackUid = ForumHtmlParser.extractUid(sessionDoc.selectFirst(".member-name a")?.attr("href").orEmpty())
                 return@withRequestLock UserSession(fallbackName.ifBlank { username }, fallbackUid).also {

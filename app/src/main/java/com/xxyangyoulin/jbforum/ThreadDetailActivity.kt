@@ -2,10 +2,14 @@ package com.xxyangyoulin.jbforum
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.os.Build
 import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.UnderlineSpan
+import android.view.GestureDetector
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,25 +47,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Message
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +87,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -96,37 +101,37 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.ImageLoader
-import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.materials.HazeMaterials
 import com.xxyangyoulin.jbforum.model.PostSegment
 import com.xxyangyoulin.jbforum.model.splitPostSegments
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
+import com.xxyangyoulin.jbforum.ui.components.EndOfListIndicator
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
+import com.xxyangyoulin.jbforum.ui.components.ForumLinkActionDialog
 import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
+import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
+import com.xxyangyoulin.jbforum.ui.components.PagingFooterStatus
 import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
@@ -204,8 +209,7 @@ class ThreadDetailActivity : ComponentActivity() {
 
 @OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class,
-    dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class
+    ExperimentalLayoutApi::class
 )
 @Composable
 internal fun ThreadDetailActivityScreen(
@@ -247,10 +251,7 @@ internal fun ThreadDetailActivityScreen(
     var linksDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
-    val handleBack = {
-        viewModel.closeThread()
-        onBack()
-    }
+    val handleBack = onBack
     val openUserCenter: (String) -> Unit = { uid ->
         context.startActivity(UserCenterActivity.createIntent(context, uid))
     }
@@ -305,13 +306,12 @@ internal fun ThreadDetailActivityScreen(
     val topBarDetail = state.threadDetail
     val topBarPost = topBarDetail?.posts?.firstOrNull()
     val topBarUid = thread.authorUid.ifBlank {
-        topBarPost?.authorUid?.ifBlank { topBarDetail?.authorUid.orEmpty() }.orEmpty()
+        topBarPost?.authorUid?.ifBlank { topBarDetail.authorUid }.orEmpty()
     }
     val topBarAvatarUrl = thread.authorAvatarUrl ?: topBarPost?.authorAvatarUrl
     val topBarAuthor = thread.author.ifBlank { topBarDetail?.author.orEmpty() }
     val topBarPublishedAt = thread.publishedAt.ifBlank { topBarDetail?.publishedAt.orEmpty() }
     var pendingScrollPid by remember { mutableStateOf<String?>(null) }
-    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val hazeState = remember { HazeState() }
 
     Scaffold(
@@ -322,17 +322,10 @@ internal fun ThreadDetailActivityScreen(
             TopAppBar(
                 windowInsets = WindowInsets.statusBarsIgnoringVisibility,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (supportsHaze) Color.Transparent else CardBackground,
-                    scrolledContainerColor = if (supportsHaze) Color.Transparent else CardBackground
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 ),
-                modifier = if (supportsHaze) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeMaterials.thin()
-                    ) {
-                        inputScale = HazeInputScale.Fixed(0.5f)
-                    }
-                } else Modifier,
+                modifier = Modifier.appTopBarHaze(hazeState),
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -373,12 +366,12 @@ internal fun ThreadDetailActivityScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = handleBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 },
                 actions = {
-                    TextButton(onClick = viewModel::favoriteThread) {
-                        Text("收藏", color = TitleText)
+                    IconButton(onClick = viewModel::favoriteThread) {
+                        Icon(Icons.Outlined.FavoriteBorder, contentDescription = "收藏", tint = TitleText)
                     }
                     ForumMessageAction(
                         status = state.forumMessageStatus,
@@ -394,7 +387,7 @@ internal fun ThreadDetailActivityScreen(
                     )
                     Box {
                         IconButton(onClick = { detailMenuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
+                            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = TitleText)
                         }
                         StyledDropdownMenu(
                             expanded = detailMenuExpanded,
@@ -402,7 +395,7 @@ internal fun ThreadDetailActivityScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("浏览历史") },
-                                leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) },
                                 onClick = {
                                     detailMenuExpanded = false
                                     historyItems = ThreadBrowseHistory.load()
@@ -410,8 +403,8 @@ internal fun ThreadDetailActivityScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("打开原网页") },
-                                leadingIcon = { Icon(Icons.Default.OpenInBrowser, contentDescription = null) },
+                                text = { Text("网页打开") },
+                                leadingIcon = { Icon(Icons.Outlined.OpenInBrowser, contentDescription = null) },
                                 onClick = {
                                     detailMenuExpanded = false
                                     val targetUrl = state.selectedThread?.url
@@ -448,21 +441,36 @@ internal fun ThreadDetailActivityScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (detectedLinks.isNotEmpty()) {
-                        FloatingActionButton(
+                        SmallFloatingActionButton(
                             onClick = { linksDialogOpen = true },
                             containerColor = CardBackground,
-                            contentColor = TitleText
+                            contentColor = TitleText,
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 4.dp,
+                                pressedElevation = 6.dp,
+                                focusedElevation = 4.dp,
+                                hoveredElevation = 4.dp
+                            )
                         ) {
-                            Icon(Icons.Default.Link, contentDescription = null)
+                            Icon(Icons.Outlined.Link, contentDescription = null)
                         }
                     }
                     if (canReply) {
-                        FloatingActionButton(
+                        SmallFloatingActionButton(
                             onClick = { replyDialogOpen = true },
                             containerColor = AccentGreen,
-                            contentColor = Color.White
+                            contentColor = Color.White,
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 4.dp,
+                                pressedElevation = 6.dp,
+                                focusedElevation = 4.dp,
+                                hoveredElevation = 4.dp
+                            )
                         ) {
-                            Text("✎")
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Message,
+                                contentDescription = null
+                            )
                         }
                     }
                 }
@@ -476,9 +484,11 @@ internal fun ThreadDetailActivityScreen(
                 imageLoader = imageLoader,
                 imageDownloadClient = imageDownloadClient,
                 refreshing = state.threadRefreshing,
+                loadingMoreReplies = state.repliesLoadingMore,
+                loadMoreRepliesError = state.repliesLoadMoreError,
                 padding = padding,
-                modifier = if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier,
-                drawBehindTopBar = supportsHaze,
+                modifier = Modifier.hazeSource(state = hazeState),
+                drawBehindTopBar = true,
                 onRefresh = { viewModel.openThread(thread) },
                 onOpenUserCenter = { uid ->
                     context.startActivity(UserCenterActivity.createIntent(context, uid))
@@ -551,16 +561,17 @@ internal fun ThreadDetailActivityScreen(
             RefreshContainer(
                 refreshing = state.loading,
                 onRefresh = { viewModel.openThread(thread) },
-                indicatorTopPadding = if (supportsHaze) padding.calculateTopPadding() else 0.dp,
+                contentVersion = state.threadDetail?.url.orEmpty(),
+                indicatorTopPadding = padding.calculateTopPadding(),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
                         start = padding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
                         end = padding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
                         bottom = padding.calculateBottomPadding(),
-                        top = if (supportsHaze) 0.dp else padding.calculateTopPadding()
+                        top = 0.dp
                     )
-                    .then(if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier)
+                    .hazeSource(state = hazeState)
             ) {
                 Box(modifier = Modifier.fillMaxSize())
             }
@@ -639,6 +650,8 @@ internal fun ThreadDetailScreen(
     imageLoader: ImageLoader,
     imageDownloadClient: okhttp3.OkHttpClient,
     refreshing: Boolean,
+    loadingMoreReplies: Boolean,
+    loadMoreRepliesError: String?,
     padding: PaddingValues,
     modifier: Modifier = Modifier,
     drawBehindTopBar: Boolean = false,
@@ -678,6 +691,11 @@ internal fun ThreadDetailScreen(
     LaunchedEffect(nearBottom) {
         onNearBottomChanged(nearBottom)
     }
+    LaunchedEffect(nearBottom, detail.nextPageUrl, loadingMoreReplies, loadMoreRepliesError) {
+        if (nearBottom && detail.nextPageUrl != null && !loadingMoreReplies && loadMoreRepliesError == null) {
+            onLoadMoreReplies()
+        }
+    }
     LaunchedEffect(targetPostId, segments) {
         val pid = targetPostId ?: return@LaunchedEffect
         val targetIndex = segments.indexOfFirst { it.postId == pid }
@@ -697,6 +715,7 @@ internal fun ThreadDetailScreen(
     RefreshContainer(
         refreshing = refreshing,
         onRefresh = onRefresh,
+        contentVersion = "${detail.url}-${segments.size}-${detail.posts.size}",
         indicatorTopPadding = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
         modifier = Modifier
             .then(modifier)
@@ -858,15 +877,23 @@ internal fun ThreadDetailScreen(
             }
             if (detail.nextPageUrl != null) {
                 item {
-                    OutlinedButton(
-                        onClick = onLoadMoreReplies,
+                    PagingFooterStatus(
+                        loading = loadingMoreReplies,
+                        error = loadMoreRepliesError,
+                        hasMore = true,
+                        onRetry = onLoadMoreReplies,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 20.dp, top = 20.dp, end = 20.dp)
-                    ) {
-                        val remainingPages = (detail.totalPages - detail.currentPage).coerceAtLeast(1)
-                        Text("继续加载更多评论，还剩 $remainingPages 页", color = TitleText)
-                    }
+                    )
+                }
+            } else if (detail.posts.isNotEmpty()) {
+                item {
+                    EndOfListIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 20.dp)
+                    )
                 }
             }
             }
@@ -1050,83 +1077,61 @@ internal fun PostContentBlocks(
     if (detectedMenuLink != null) {
         val menuLink = detectedMenuLink.orEmpty()
         val menuLabel = detectedMenuLabel.orEmpty()
-        val canOpenInternally = shouldShowInternalOpen(menuLink, detectedMenuType)
-        val canOpenExternally = shouldShowExternalOpen(menuLink, detectedMenuType)
-        val externalOpenLink = normalizeExternalDetectedLink(menuLink)
-        AlertDialog(
-            onDismissRequest = {
+        ForumLinkActionDialog(
+            link = menuLink,
+            type = detectedMenuType,
+            message = menuLabel.ifBlank { menuLink },
+            onDismiss = {
                 detectedMenuLink = null
                 detectedMenuType = null
                 detectedMenuLabel = null
             },
-            title = { Text("链接操作") },
-            text = { Text(menuLabel.ifBlank { menuLink }) },
-            confirmButton = {
-                if (canOpenInternally) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                detectedMenuLink = null
-                                detectedMenuType = null
-                                detectedMenuLabel = null
-                                onOpenLink(menuLink, menuLabel.ifBlank { menuLink })
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("打开")
-                        }
-                    }
-                }
+            onOpen = {
+                detectedMenuLink = null
+                detectedMenuType = null
+                detectedMenuLabel = null
+                onOpenLink(menuLink, menuLabel.ifBlank { menuLink })
             },
-            dismissButton = {
-                Row {
-                    if (canOpenExternally) {
-                        TextButton(
-                            onClick = {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(externalOpenLink)))
-                                detectedMenuLink = null
-                                detectedMenuType = null
-                                detectedMenuLabel = null
-                            }
-                        ) {
-                            Text("外部打开")
-                        }
+            onExternalOpen = { externalLink ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(externalLink)))
+                detectedMenuLink = null
+                detectedMenuType = null
+                detectedMenuLabel = null
+            },
+            onFavorite = {
+                onFavoriteText(menuLink, detectedMenuType)
+                detectedMenuLink = null
+                detectedMenuType = null
+                detectedMenuLabel = null
+            },
+            onOpenCode = if (detectedMenuType == "番号") {
+                {
+                    val domain = ForumDomainConfig.getDomain()
+                    if (domain.isBlank()) {
+                        Toast.makeText(context, "请先在设置中填写论坛域名", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val code = menuLink.trim()
+                        val targetUrl = "https://$domain/${Uri.encode(code)}"
+                        context.startActivity(
+                            ThreadWebViewActivity.createIntent(
+                                context = context,
+                                url = targetUrl,
+                                title = code
+                            )
+                        )
                     }
-                    TextButton(
-                        onClick = {
-                            val clipboard = context.getSystemService(ClipboardManager::class.java)
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("link", menuLink))
-                            Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
-                            detectedMenuLink = null
-                            detectedMenuType = null
-                            detectedMenuLabel = null
-                        }
-                    ) {
-                        Text("复制")
-                    }
-                    TextButton(
-                        onClick = {
-                            onFavoriteText(menuLink, detectedMenuType)
-                            detectedMenuLink = null
-                            detectedMenuType = null
-                            detectedMenuLabel = null
-                        }
-                    ) {
-                        Text("收藏")
-                    }
-                    TextButton(
-                        onClick = {
-                            detectedMenuLink = null
-                            detectedMenuType = null
-                            detectedMenuLabel = null
-                        }
-                    ) {
-                        Text("取消")
-                    }
+                    detectedMenuLink = null
+                    detectedMenuType = null
+                    detectedMenuLabel = null
                 }
+            } else null,
+            onCopy = {
+                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText("link", menuLink))
+                Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
+                detectedMenuLink = null
+                detectedMenuType = null
+                detectedMenuLabel = null
             }
         )
     }
@@ -1192,60 +1197,86 @@ private fun LinkablePostText(
     onOpenLink: (String, String) -> Unit,
     onLongPressLink: (String, String) -> Unit
 ) {
-    val annotated = remember(segments) {
-        buildAnnotatedString {
+    val style = MaterialTheme.typography.bodyLarge
+    val textSizeSp = style.fontSize.takeIf { it != androidx.compose.ui.unit.TextUnit.Unspecified } ?: 16.sp
+    val plainText = remember(segments) { segments.joinToString(separator = "") { it.text } }
+    val linkRanges = remember(segments) {
+        buildList {
+            var cursor = 0
             segments.forEach { segment ->
-                val start = length
-                append(segment.text)
-                val end = length
-                if (!segment.linkUrl.isNullOrBlank()) {
-                    addStyle(
-                        SpanStyle(color = AccentGreen, textDecoration = TextDecoration.Underline),
-                        start = start,
-                        end = end
-                    )
-                    addStringAnnotation(
-                        tag = "link",
-                        annotation = segment.linkUrl,
-                        start = start,
-                        end = end
+                val start = cursor
+                cursor += segment.text.length
+                val end = cursor
+                val link = segment.linkUrl
+                if (!link.isNullOrBlank() && end > start) {
+                    add(
+                        InlineLinkRange(
+                            start = start,
+                            end = end,
+                            url = link,
+                            label = segment.text
+                        )
                     )
                 }
             }
         }
     }
-    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-    BasicText(
-        text = annotated,
-        style = MaterialTheme.typography.bodyLarge.copy(color = TitleText),
-        onTextLayout = { textLayoutResult = it },
-        modifier = Modifier.pointerInput(annotated) {
-            detectTapGestures(
-                onTap = { position ->
-                    val layout = textLayoutResult ?: return@detectTapGestures
-                    val offset = layout.getOffsetForPosition(position)
-                    annotated
-                        .getStringAnnotations(tag = "link", start = offset, end = offset)
-                        .firstOrNull()
-                        ?.let { annotation ->
-                            val label = segments.firstOrNull { it.linkUrl == annotation.item }?.text.orEmpty()
-                            onOpenLink(annotation.item, label)
+    val latestRanges by rememberUpdatedState(linkRanges)
+    AndroidView(
+        modifier = Modifier.fillMaxWidth(),
+        factory = { context ->
+            androidx.appcompat.widget.AppCompatTextView(context).apply {
+                setTextIsSelectable(true)
+                setTextColor(TitleText.toArgb())
+                textSize = textSizeSp.value
+                val gestureDetector = GestureDetector(
+                    context,
+                    object : GestureDetector.SimpleOnGestureListener() {
+                        private fun detectLink(event: android.view.MotionEvent): InlineLinkRange? {
+                            val textLayout = layout ?: return null
+                            val x = (event.x - totalPaddingLeft + scrollX).toInt()
+                            val y = (event.y - totalPaddingTop + scrollY).toInt()
+                            val line = textLayout.getLineForVertical(y)
+                            val offset = textLayout.getOffsetForHorizontal(line, x.toFloat())
+                            return latestRanges.firstOrNull { offset in it.start until it.end }
                         }
-                },
-                onLongPress = { position ->
-                    val layout = textLayoutResult ?: return@detectTapGestures
-                    val offset = layout.getOffsetForPosition(position)
-                    annotated
-                        .getStringAnnotations(tag = "link", start = offset, end = offset)
-                        .firstOrNull()
-                        ?.let { annotation ->
-                            onLongPressLink(
-                                annotation.item,
-                                segments.firstOrNull { it.linkUrl == annotation.item }?.text.orEmpty()
-                            )
+
+                        override fun onSingleTapUp(e: android.view.MotionEvent): Boolean {
+                            val match = detectLink(e) ?: return false
+                            onOpenLink(match.url, match.label)
+                            return true
                         }
+
+                        override fun onLongPress(e: android.view.MotionEvent) {
+                            val match = detectLink(e) ?: return
+                            onLongPressLink(match.url, match.label)
+                        }
+                    }
+                )
+                setOnTouchListener { _, event ->
+                    gestureDetector.onTouchEvent(event)
                 }
-            )
+            }
+        },
+        update = { textView ->
+            val spanned = SpannableString(plainText)
+            linkRanges.forEach { range ->
+                spanned.setSpan(
+                    ForegroundColorSpan(AccentGreen.toArgb()),
+                    range.start,
+                    range.end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                spanned.setSpan(
+                    UnderlineSpan(),
+                    range.start,
+                    range.end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            textView.text = spanned
+            textView.setTextColor(TitleText.toArgb())
+            textView.textSize = textSizeSp.value
         }
     )
 }
@@ -1309,49 +1340,6 @@ private fun openThreadDetailLink(
     openThreadWeb(normalized, label.ifBlank { "原网页" })
 }
 
-private fun shouldShowInternalOpen(link: String, type: String?): Boolean {
-    if (type == "番号" || type == "磁力") return false
-    return link.startsWith("http://", ignoreCase = true) ||
-        link.startsWith("https://", ignoreCase = true) ||
-        link.startsWith("ed2k://", ignoreCase = true) ||
-        isCloudShareLink(link)
-}
-
-private fun shouldShowExternalOpen(link: String, type: String?): Boolean {
-    if (type == "番号") return false
-    return link.startsWith("http://", ignoreCase = true) ||
-        link.startsWith("https://", ignoreCase = true) ||
-        link.startsWith("magnet:", ignoreCase = true) ||
-        link.startsWith("ed2k://", ignoreCase = true) ||
-        isCloudShareLink(link)
-}
-
-private fun normalizeExternalDetectedLink(link: String): String {
-    return if (isCloudShareLink(link) && !link.startsWith("http://", ignoreCase = true) && !link.startsWith("https://", ignoreCase = true)) {
-        "https://$link"
-    } else {
-        link
-    }
-}
-
-private fun isCloudShareLink(link: String): Boolean {
-    val normalized = link.lowercase()
-    return normalized.startsWith("pan.baidu.com/") ||
-        normalized.startsWith("pan.quark.cn/") ||
-        normalized.startsWith("aliyundrive.com/") ||
-        normalized.startsWith("www.aliyundrive.com/") ||
-        normalized.startsWith("alipan.com/") ||
-        normalized.startsWith("www.alipan.com/") ||
-        normalized.startsWith("drive.uc.cn/") ||
-        normalized.startsWith("115.com/") ||
-        normalized.startsWith("pan.xunlei.com/") ||
-        normalized.startsWith("123pan.com/") ||
-        normalized.startsWith("www.123pan.com/") ||
-        normalized.startsWith("share.weiyun.com/") ||
-        normalized.matches(Regex("""lanzou[a-z0-9]*\.com/.*""")) ||
-        normalized.matches(Regex("""www\.lanzou[a-z0-9]*\.com/.*"""))
-}
-
 private fun extractThreadId(url: String): String {
     val tid = url.substringAfter("tid=", "").substringBefore('&').trim()
     if (tid.isNotBlank()) return tid
@@ -1405,19 +1393,15 @@ private suspend fun saveThreadImageToGallery(
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
             put(android.provider.MediaStore.Images.Media.MIME_TYPE, payload.mimeType)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
-                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
-            }
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("无法创建相册文件")
         resolver.openOutputStream(uri)?.use { it.write(payload.bytes) } ?: error("无法写入相册文件")
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            resolver.update(uri, android.content.ContentValues().apply {
-                put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
-            }, null, null)
-        }
+        resolver.update(uri, android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+        }, null, null)
     }
 }
 
@@ -1425,6 +1409,13 @@ private data class ThreadGalleryImagePayload(
     val bytes: ByteArray,
     val extension: String,
     val mimeType: String
+)
+
+private data class InlineLinkRange(
+    val start: Int,
+    val end: Int,
+    val url: String,
+    val label: String
 )
 
 private fun threadImageFormatFor(imageRef: String): ThreadGalleryImagePayload {
@@ -1473,7 +1464,7 @@ internal fun PostFooter(
         horizontalArrangement = Arrangement.End
     ) {
         Icon(
-            imageVector = Icons.Outlined.Message,
+            imageVector = Icons.AutoMirrored.Filled.Message,
             contentDescription = "点评",
             tint = MutedText,
             modifier = Modifier

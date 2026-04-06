@@ -7,7 +7,6 @@ import androidx.activity.ComponentActivity
 class ShortcutEntryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        overridePendingTransition(0, 0)
         when (intent.action) {
             ACTION_OPEN_LOCAL_FAVORITES -> {
                 startActivity(
@@ -18,11 +17,6 @@ class ShortcutEntryActivity : ComponentActivity() {
             }
         }
         finish()
-    }
-
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
     }
 
     companion object {

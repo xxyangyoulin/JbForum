@@ -35,6 +35,10 @@ data class AppState(
     val selectedBoard: Board? = null,
     val selectedThread: ThreadSummary? = null,
     val threadRefreshing: Boolean = false,
+    val threadsLoadingMore: Boolean = false,
+    val threadsLoadMoreError: String? = null,
+    val repliesLoadingMore: Boolean = false,
+    val repliesLoadMoreError: String? = null,
     val threadListFirstVisibleItemIndex: Int = 0,
     val threadListFirstVisibleItemScrollOffset: Int = 0,
     val composeForm: ComposeForm? = null,
@@ -42,6 +46,7 @@ data class AppState(
     val challenge: CaptchaChallenge? = null,
     val session: UserSession? = null,
     val forumMessageStatus: ForumMessageStatus = ForumMessageStatus(),
+    val onlineMembersText: String = "",
     val loading: Boolean = false,
     val message: String? = null
 )
@@ -91,6 +96,7 @@ class MainViewModel(
                     session = repository.latestSession(),
                     localFavoriteImages = LocalImageFavorites.load(),
                     forumMessageStatus = repository.latestMessageStatus(),
+                    onlineMembersText = repository.latestOnlineMembersText(),
                     loading = false
                 )
             }
@@ -100,7 +106,14 @@ class MainViewModel(
     fun refreshBoards() = launchTask {
         _state.update { it.copy(loading = true, message = null, selectedBoard = null, selectedThread = null, threadDetail = null, detectedLinks = emptyList(), userCenterVisible = false) }
         val boards = repository.loadBoards()
-        _state.update { it.copy(boards = boards, forumMessageStatus = repository.latestMessageStatus(), loading = false) }
+        _state.update {
+            it.copy(
+                boards = boards,
+                forumMessageStatus = repository.latestMessageStatus(),
+                onlineMembersText = repository.latestOnlineMembersText(),
+                loading = false
+            )
+        }
     }
 
     fun openBoard(board: Board, forceRefresh: Boolean = false) = launchTask {
@@ -116,6 +129,8 @@ class MainViewModel(
                 selectedThread = null,
                 threadDetail = null,
                 detectedLinks = emptyList(),
+                threadsLoadingMore = false,
+                threadsLoadMoreError = null,
                 message = null
             )
         }
@@ -126,6 +141,8 @@ class MainViewModel(
             it.copy(
                 threads = page.threads,
                 threadsNextPageUrl = page.nextPageUrl,
+                threadsLoadingMore = false,
+                threadsLoadMoreError = null,
                 forumMessageStatus = repository.latestMessageStatus(),
                 loading = false
             )
@@ -146,7 +163,9 @@ class MainViewModel(
                 ),
                 selectedThread = null,
                 threadDetail = null,
-                detectedLinks = emptyList()
+                detectedLinks = emptyList(),
+                threadsLoadingMore = false,
+                threadsLoadMoreError = null
             )
         }
         val page = repository.searchThreads(query)
@@ -154,6 +173,8 @@ class MainViewModel(
             it.copy(
                 threads = page.threads,
                 threadsNextPageUrl = page.nextPageUrl,
+                threadsLoadingMore = false,
+                threadsLoadMoreError = null,
                 forumMessageStatus = repository.latestMessageStatus(),
                 loading = false
             )
@@ -174,6 +195,8 @@ class MainViewModel(
                 threadOpenedFromUserCenter = openedFromUserCenter,
                 remarkForm = null,
                 message = null,
+                repliesLoadingMore = false,
+                repliesLoadMoreError = null,
                 threadDetail = cached?.detail,
                 detectedLinks = cached?.detectedLinks ?: emptyList()
             )
@@ -185,6 +208,8 @@ class MainViewModel(
             it.copy(
                 threadDetail = detail,
                 detectedLinks = links,
+                repliesLoadingMore = false,
+                repliesLoadMoreError = null,
                 forumMessageStatus = repository.latestMessageStatus(),
                 loading = false,
                 threadRefreshing = false
@@ -300,26 +325,42 @@ class MainViewModel(
         }
     }
 
-    fun loadMoreReplies() = launchTask {
-        val detail = state.value.threadDetail ?: error("请先打开帖子")
-        val nextPageUrl = detail.nextPageUrl ?: return@launchTask
-        _state.update { it.copy(loading = true, message = null) }
-        val nextPage = repository.loadThreadPage(nextPageUrl)
-        val mergedDetail = detail.copy(
-            posts = detail.posts + nextPage.posts,
-            nextPageUrl = nextPage.nextPageUrl,
-            currentPage = nextPage.currentPage,
-            totalPages = nextPage.totalPages
-        )
-        val links = ThreadLinkRecognizer.extract(mergedDetail)
-        cacheThreadDetail(mergedDetail, links)
-        _state.update {
-            it.copy(
-                loading = false,
-                threadDetail = mergedDetail,
-                detectedLinks = links,
-                forumMessageStatus = repository.latestMessageStatus()
-            )
+    fun loadMoreReplies() {
+        val current = state.value
+        if (current.repliesLoadingMore) return
+        val detail = current.threadDetail ?: return
+        val nextPageUrl = detail.nextPageUrl ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(repliesLoadingMore = true, repliesLoadMoreError = null) }
+            runCatching {
+                withContext(Dispatchers.IO) { repository.loadThreadPage(nextPageUrl) }
+            }.onSuccess { nextPage ->
+                val latestDetail = state.value.threadDetail ?: detail
+                val mergedDetail = latestDetail.copy(
+                    posts = latestDetail.posts + nextPage.posts,
+                    nextPageUrl = nextPage.nextPageUrl,
+                    currentPage = nextPage.currentPage,
+                    totalPages = nextPage.totalPages
+                )
+                val links = ThreadLinkRecognizer.extract(mergedDetail)
+                withContext(Dispatchers.IO) { cacheThreadDetail(mergedDetail, links) }
+                _state.update {
+                    it.copy(
+                        repliesLoadingMore = false,
+                        repliesLoadMoreError = null,
+                        threadDetail = mergedDetail,
+                        detectedLinks = links,
+                        forumMessageStatus = repository.latestMessageStatus()
+                    )
+                }
+            }.onFailure { t ->
+                _state.update {
+                    it.copy(
+                        repliesLoadingMore = false,
+                        repliesLoadMoreError = t.message ?: "加载失败"
+                    )
+                }
+            }
         }
     }
 
@@ -341,25 +382,42 @@ class MainViewModel(
         }
     }
 
-    fun loadMoreThreads() = launchTask {
-        val nextPageUrl = state.value.threadsNextPageUrl ?: return@launchTask
-        _state.update { it.copy(loading = true, message = null) }
-        val page = repository.loadThreadsPage(nextPageUrl)
-        val mergedThreads = state.value.threads + page.threads
-        val mergedNextPageUrl = page.nextPageUrl
-        val boardUrl = state.value.selectedBoard?.url
-        if (!boardUrl.isNullOrBlank()) {
-            val mergedPage = ThreadListPage(threads = mergedThreads, nextPageUrl = mergedNextPageUrl)
-            boardCache[boardUrl] = BoardCache(mergedThreads, mergedNextPageUrl)
-            ThreadListDiskCache.save(boardUrl, mergedPage)
-        }
-        _state.update {
-            it.copy(
-                loading = false,
-                threads = mergedThreads,
-                threadsNextPageUrl = mergedNextPageUrl,
-                forumMessageStatus = repository.latestMessageStatus()
-            )
+    fun loadMoreThreads() {
+        val current = state.value
+        if (current.threadsLoadingMore) return
+        val nextPageUrl = current.threadsNextPageUrl ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(threadsLoadingMore = true, threadsLoadMoreError = null) }
+            runCatching {
+                withContext(Dispatchers.IO) { repository.loadThreadsPage(nextPageUrl) }
+            }.onSuccess { page ->
+                val mergedThreads = state.value.threads + page.threads
+                val mergedNextPageUrl = page.nextPageUrl
+                val boardUrl = state.value.selectedBoard?.url
+                if (!boardUrl.isNullOrBlank()) {
+                    withContext(Dispatchers.IO) {
+                        val mergedPage = ThreadListPage(threads = mergedThreads, nextPageUrl = mergedNextPageUrl)
+                        boardCache[boardUrl] = BoardCache(mergedThreads, mergedNextPageUrl)
+                        ThreadListDiskCache.save(boardUrl, mergedPage)
+                    }
+                }
+                _state.update {
+                    it.copy(
+                        threadsLoadingMore = false,
+                        threadsLoadMoreError = null,
+                        threads = mergedThreads,
+                        threadsNextPageUrl = mergedNextPageUrl,
+                        forumMessageStatus = repository.latestMessageStatus()
+                    )
+                }
+            }.onFailure { t ->
+                _state.update {
+                    it.copy(
+                        threadsLoadingMore = false,
+                        threadsLoadMoreError = t.message ?: "加载失败"
+                    )
+                }
+            }
         }
     }
 

@@ -23,6 +23,8 @@ data class ThreadSummary(
     val repliesText: String = "",
     val lastReplyAuthor: String = "",
     val lastReplyTime: String = "",
+    val isNewbiePost: Boolean = false,
+    val hasNewReply: Boolean = false,
     val metaText: String = ""
 )
 
@@ -132,6 +134,7 @@ data class UserProfile(
     val username: String,
     val uid: String,
     val avatarUrl: String?,
+    val userGroup: String = "",
     val stats: List<Pair<String, String>>,
     val basics: List<Pair<String, String>>,
     val activity: List<Pair<String, String>>,

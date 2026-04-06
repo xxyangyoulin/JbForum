@@ -48,6 +48,8 @@ object ThreadListDiskCache {
                             repliesText = item.optString("repliesText"),
                             lastReplyAuthor = item.optString("lastReplyAuthor"),
                             lastReplyTime = item.optString("lastReplyTime"),
+                            isNewbiePost = item.optBoolean("isNewbiePost", false),
+                            hasNewReply = item.optBoolean("hasNewReply", false),
                             metaText = item.optString("metaText")
                         )
                     )
@@ -81,6 +83,8 @@ object ThreadListDiskCache {
                             put("repliesText", thread.repliesText)
                             put("lastReplyAuthor", thread.lastReplyAuthor)
                             put("lastReplyTime", thread.lastReplyTime)
+                            put("isNewbiePost", thread.isNewbiePost)
+                            put("hasNewReply", thread.hasNewReply)
                             put("metaText", thread.metaText)
                         }
                     )

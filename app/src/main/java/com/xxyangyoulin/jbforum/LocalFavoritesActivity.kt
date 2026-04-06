@@ -1,7 +1,6 @@
 package com.xxyangyoulin.jbforum
 
 import android.os.Bundle
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -9,24 +8,24 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -37,18 +36,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -75,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -86,16 +87,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import coil.ImageLoader
-import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.materials.HazeMaterials
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
+import com.xxyangyoulin.jbforum.ui.components.EndOfListIndicator
+import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
 import com.xxyangyoulin.jbforum.util.buildHighlightedText
 import com.xxyangyoulin.jbforum.util.openThreadByPreference
 import java.text.SimpleDateFormat
@@ -142,8 +145,7 @@ class LocalFavoritesActivity : ComponentActivity() {
 @OptIn(
     ExperimentalMaterial3Api::class,
     ExperimentalFoundationApi::class,
-    ExperimentalLayoutApi::class,
-    dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class
+    ExperimentalLayoutApi::class
 )
 @Composable
 internal fun LocalFavoritesActivityScreen(
@@ -152,11 +154,10 @@ internal fun LocalFavoritesActivityScreen(
     onBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val imageLoader = rememberForumImageLoader()
     var tab by rememberSaveable { mutableStateOf(if (initialTab == LocalFavoritesActivity.TAB_LINK) LocalFavoritesActivity.TAB_LINK else LocalFavoritesActivity.TAB_IMAGE) }
-    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val enableHaze = supportsHaze
     val hazeState = remember { HazeState() }
     var linkItems by remember { mutableStateOf(LocalLinkFavorites.load()) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -185,6 +186,16 @@ internal fun LocalFavoritesActivityScreen(
         linkItems = LocalLinkFavorites.load()
     }
 
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshSession()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Scaffold(
         containerColor = AppBackground,
         contentWindowInsets = WindowInsets.navigationBarsIgnoringVisibility,
@@ -192,23 +203,14 @@ internal fun LocalFavoritesActivityScreen(
             TopAppBar(
                 windowInsets = WindowInsets.statusBarsIgnoringVisibility,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (enableHaze) Color.Transparent else CardBackground,
-                    scrolledContainerColor = if (enableHaze) Color.Transparent else CardBackground
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 ),
-                modifier = if (enableHaze) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeMaterials.thin()
-                    ) {
-                        inputScale = HazeInputScale.Fixed(0.5f)
-                    }
-                } else {
-                    Modifier
-                },
+                modifier = Modifier.appTopBarHaze(hazeState),
                 title = { Text("本地收藏", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBackIos, contentDescription = null, tint = TitleText)
                     }
                 },
                 actions = {
@@ -247,8 +249,8 @@ internal fun LocalFavoritesActivityScreen(
                 imageLoader = imageLoader,
                 refreshing = state.loading,
                 padding = padding,
-                modifier = if (enableHaze) Modifier.hazeSource(state = hazeState) else Modifier,
-                drawBehindTopBar = enableHaze,
+                modifier = Modifier.hazeSource(state = hazeState),
+                drawBehindTopBar = true,
                 onRefresh = viewModel::refreshLocalFavorites,
                 onDeleteSelected = viewModel::deleteLocalFavorites,
                 onOpenImage = { index, launchSource ->
@@ -274,8 +276,8 @@ internal fun LocalFavoritesActivityScreen(
             LocalLinkFavoritesContent(
                 items = linkItems,
                 padding = padding,
-                modifier = if (enableHaze) Modifier.hazeSource(state = hazeState) else Modifier,
-                drawBehindTopBar = enableHaze,
+                modifier = Modifier.hazeSource(state = hazeState),
+                drawBehindTopBar = true,
                 onLinksChanged = { linkItems = LocalLinkFavorites.load() },
                 onOpenThread = { item ->
                     val sourceUrl = item.sourceThreadUrl
@@ -306,15 +308,33 @@ internal fun LocalLinkFavoritesContent(
     onOpenThread: (LocalFavoriteLink) -> Unit
 ) {
     val context = LocalContext.current
+    val pageSize = 80
+    val preloadThreshold = 16
     var selectedTab by rememberSaveable { mutableStateOf(LinkCategory.ALL) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val filteredItems = remember(items, selectedTab) {
         items.filter { LinkCategory.matches(selectedTab, it.type) }
     }
+    var loadedCount by remember(filteredItems) { mutableStateOf(filteredItems.size.coerceAtMost(pageSize)) }
+    val visibleItems = remember(filteredItems, loadedCount) { filteredItems.take(loadedCount) }
+    val listState = rememberLazyListState()
     val selectedItems = remember(filteredItems, selectedIds) {
         filteredItems.filter { selectedIds.contains(it.id) }
     }
-    val selectionMode = selectedIds.isNotEmpty()
+
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedIds = emptySet()
+    }
+
+    LaunchedEffect(filteredItems, loadedCount) {
+        if (loadedCount >= filteredItems.size) return@LaunchedEffect
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
+        if (lastVisibleIndex >= visibleItems.size - preloadThreshold) {
+            loadedCount = (loadedCount + pageSize).coerceAtMost(filteredItems.size)
+        }
+    }
 
     fun toggleSelection(id: String) {
         selectedIds = if (selectedIds.contains(id)) selectedIds - id else selectedIds + id
@@ -339,6 +359,7 @@ internal fun LocalLinkFavoritesContent(
     fun deleteLinks(targets: List<LocalFavoriteLink>) {
         if (targets.isEmpty()) return
         LocalLinkFavorites.remove(targets.map { it.id }.toSet())
+        selectionMode = false
         selectedIds = emptySet()
         onLinksChanged()
         Toast.makeText(context, "已删除 ${targets.size} 条收藏", Toast.LENGTH_SHORT).show()
@@ -368,42 +389,50 @@ internal fun LocalLinkFavoritesContent(
                 top = if (drawBehindTopBar) 0.dp else padding.calculateTopPadding()
             )
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 12.dp,
-                top = 12.dp + if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
-                end = 12.dp,
-                bottom = if (selectionMode) 84.dp else 12.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 12.dp + if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp
+                    ),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    LinkCategory.tabs.forEach { tab ->
+                        SelectablePill(
+                            text = tab,
+                            selected = selectedTab == tab,
+                            onClick = {
+                                selectedTab = tab
+                                selectionMode = false
+                                selectedIds = emptySet()
+                            }
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.heightIn(min = 30.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        LinkCategory.tabs.forEach { tab ->
-                            SelectablePill(
-                                text = tab,
-                                selected = selectedTab == tab,
-                                onClick = {
-                                    selectedTab = tab
-                                    selectedIds = emptySet()
-                                }
-                            )
+                    if (!selectionMode) {
+                        TextButton(
+                            onClick = { selectionMode = true },
+                            enabled = filteredItems.isNotEmpty(),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            modifier = Modifier.heightIn(min = 26.dp)
+                        ) {
+                            Text("选择", fontSize = 12.sp)
                         }
-                    }
-                    Row(
-                        modifier = Modifier.heightIn(min = 30.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    } else {
                         val allSelected = filteredItems.isNotEmpty() && filteredItems.all { selectedIds.contains(it.id) }
                         TextButton(
                             onClick = {
@@ -420,14 +449,37 @@ internal fun LocalLinkFavoritesContent(
                         ) {
                             Text(if (allSelected) "取消" else "全选", fontSize = 12.sp)
                         }
+                        TextButton(
+                            onClick = {
+                                selectionMode = false
+                                selectedIds = emptySet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            modifier = Modifier.heightIn(min = 26.dp)
+                        ) {
+                            Text("完成", fontSize = 12.sp)
+                        }
                         Text(
-                            text = if (selectionMode) "${selectedIds.size}" else "",
+                            text = selectedIds.size.toString(),
                             color = MutedText,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
                 }
             }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = 12.dp,
+                    top = 8.dp,
+                    end = 12.dp,
+                    bottom = if (selectionMode) 84.dp else 12.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             if (filteredItems.isEmpty()) {
                 item {
                     Text(
@@ -439,16 +491,20 @@ internal fun LocalLinkFavoritesContent(
                     )
                 }
             }
-            items(filteredItems, key = { it.id }) { item ->
+            items(visibleItems, key = { it.id }) { item ->
                 val selected = selectedIds.contains(item.id)
                 OutlinedCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .combinedClickable(
-                            onClick = {
-                                if (selectionMode) toggleSelection(item.id)
-                            },
-                            onLongClick = { toggleSelection(item.id) }
+                        .then(
+                            if (selectionMode) {
+                                Modifier.combinedClickable(
+                                    onClick = { toggleSelection(item.id) },
+                                    onLongClick = { toggleSelection(item.id) }
+                                )
+                            } else {
+                                Modifier
+                            }
                         ),
                     colors = CardDefaults.outlinedCardColors(
                         containerColor = if (selected) AccentGreen.copy(alpha = 0.08f) else CardBackground
@@ -470,8 +526,12 @@ internal fun LocalLinkFavoritesContent(
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
-                        SelectionContainer {
+                        if (selectionMode) {
                             Text(item.value, color = TitleText, style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            SelectionContainer {
+                                Text(item.value, color = TitleText, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -487,85 +547,83 @@ internal fun LocalLinkFavoritesContent(
                             )
                             TextButton(
                                 onClick = { copyLinks(listOf(item)) },
+                                enabled = !selectionMode,
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                                 modifier = Modifier.heightIn(min = 26.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp))
+                                Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp))
                             }
                             TextButton(
                                 onClick = { shareLinks(listOf(item)) },
+                                enabled = !selectionMode,
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                                 modifier = Modifier.heightIn(min = 26.dp)
                             ) {
-                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp))
+                                Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(12.dp))
                             }
                             TextButton(
                                 onClick = { onOpenThread(item) },
-                                enabled = item.sourceThreadUrl.isNotBlank(),
+                                enabled = !selectionMode && item.sourceThreadUrl.isNotBlank(),
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                                 modifier = Modifier.heightIn(min = 26.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    imageVector = Icons.AutoMirrored.Outlined.ArrowBackIos,
                                     contentDescription = null,
-                                    modifier = Modifier.size(12.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("原帖", fontSize = 12.sp)
                             }
                         }
                     }
                 }
             }
-            item { Spacer(modifier = Modifier.size(8.dp)) }
+            if (loadedCount >= filteredItems.size && filteredItems.isNotEmpty()) {
+                item { EndOfListIndicator(modifier = Modifier.padding(vertical = 8.dp)) }
+            }
+                item { Spacer(modifier = Modifier.size(8.dp)) }
+            }
         }
 
-        AnimatedVisibility(
-            visible = selectionMode,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
+        if (selectionMode) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(999.dp),
                 color = CardBackground,
-                shadowElevation = 8.dp
+                shadowElevation = 10.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
-                        onClick = { copyLinks(selectedItems) },
-                        enabled = selectedItems.isNotEmpty(),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.heightIn(min = 30.dp)
+                    IconButton(
+                        onClick = {
+                            copyLinks(selectedItems)
+                            selectionMode = false
+                            selectedIds = emptySet()
+                        },
+                        enabled = selectedItems.isNotEmpty()
                     ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("复制")
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
-                    OutlinedButton(
-                        onClick = { shareLinks(selectedItems) },
-                        enabled = selectedItems.isNotEmpty(),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.heightIn(min = 30.dp)
+                    IconButton(
+                        onClick = {
+                            shareLinks(selectedItems)
+                            selectionMode = false
+                            selectedIds = emptySet()
+                        },
+                        enabled = selectedItems.isNotEmpty()
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("分享")
+                        Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
-                    OutlinedButton(
+                    IconButton(
                         onClick = { deleteLinks(selectedItems) },
-                        enabled = selectedItems.isNotEmpty(),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.heightIn(min = 30.dp)
+                        enabled = selectedItems.isNotEmpty()
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("删除")
+                        Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -690,8 +748,13 @@ internal fun LocalFavoritesScreen(
     onDeleteSelected: (Set<String>) -> Unit,
     onOpenImage: (Int, PreviewLaunchSource?) -> Unit
 ) {
+    val pageSize = 120
+    val preloadThreshold = 18
     val selectedIds = remember { mutableStateListOf<String>() }
     var confirmDelete by remember { mutableStateOf(false) }
+    var loadedCount by remember(images) { mutableStateOf(images.size.coerceAtMost(pageSize)) }
+    val visibleImages = remember(images, loadedCount) { images.take(loadedCount) }
+    val latestTotalCount = rememberUpdatedState(images.size)
     val context = LocalContext.current
     val adapter = remember(context, imageLoader) {
         LocalFavoritesAdapter(
@@ -706,8 +769,8 @@ internal fun LocalFavoritesScreen(
         val validIds = images.mapTo(linkedSetOf()) { it.id }
         selectedIds.retainAll(validIds)
     }
-    LaunchedEffect(images) {
-        adapter.submitItems(images)
+    LaunchedEffect(visibleImages) {
+        adapter.submitItems(visibleImages)
         adapter.recyclerView?.post { adapter.rebindVisiblePlayers() }
     }
     LaunchedEffect(selectedIds.size) {
@@ -782,6 +845,14 @@ internal fun LocalFavoritesScreen(
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 adapter.setScrolling(newState != RecyclerView.SCROLL_STATE_IDLE)
                             }
+
+                            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                                val lm = recyclerView.layoutManager as? StaggeredGridLayoutManager ?: return
+                                val last = lm.findLastVisibleItemPositions(null).maxOrNull() ?: return
+                                if (last >= adapter.itemCount - preloadThreshold && loadedCount < latestTotalCount.value) {
+                                    loadedCount = (loadedCount + pageSize).coerceAtMost(latestTotalCount.value)
+                                }
+                            }
                         })
                     }
                 },
@@ -798,16 +869,16 @@ internal fun LocalFavoritesScreen(
                 )
             }
             if (selectedIds.isNotEmpty()) {
-                FloatingActionButton(
+                SmallFloatingActionButton(
                     onClick = { confirmDelete = true },
-                    containerColor = AccentGreen,
+                    containerColor = AccentGreen.copy(alpha = 0.8f),
                     contentColor = Color.White,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(end = FloatingButtonEdgePadding, bottom = FloatingButtonEdgePadding)
                 ) {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
+                    Icon(Icons.Outlined.Delete, contentDescription = null)
                 }
             }
         }

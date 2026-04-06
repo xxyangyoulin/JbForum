@@ -21,7 +21,7 @@ class ForumApiClient {
     val desktopUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
     private val requestMutex = Mutex()
 
-    val cookieJar = object : CookieJar {
+    private val appCookieJar = object : CookieJar {
         private val store = CookiePersistence.load()
 
         private fun reloadFromPersistence() {
@@ -40,7 +40,7 @@ class ForumApiClient {
                     store.add(incoming)
                 }
                 CookiePersistence.save(store)
-                Log.d(AppConstants.LOG_TAG, "saveCookies url=$url count=${store.size}")
+                if (BuildConfig.DEBUG) Log.d(AppConstants.LOG_TAG, "saveCookies url=$url count=${store.size}")
             }
         }
 
@@ -50,7 +50,7 @@ class ForumApiClient {
                 val now = System.currentTimeMillis()
                 store.removeAll { it.expiresAt < now }
                 val matched = store.filter { it.matches(url) }
-                Log.d(AppConstants.LOG_TAG, "loadCookies url=$url matched=${matched.map { it.name }}")
+                if (BuildConfig.DEBUG) Log.d(AppConstants.LOG_TAG, "loadCookies url=$url matched=${matched.map { it.name }}")
                 return matched
             }
         }
@@ -78,6 +78,9 @@ class ForumApiClient {
             }
         }
     }
+
+    val cookieJar: CookieJar
+        get() = appCookieJar
 
     private val client = OkHttpClient.Builder()
         .addInterceptor(Interceptor { chain ->
@@ -123,22 +126,24 @@ class ForumApiClient {
      */
     suspend fun ensureForumSession() {
         if (forumSessionReady) return
-        if (cookieJar.isEmpty()) {
+        if (appCookieJar.isEmpty()) {
             getDocument("member.php?mod=logging&action=login")
         } else {
             getDocument("forum.php")
         }
         forumSessionReady = true
-        Log.d(AppConstants.LOG_TAG, "ensureForumSession ready=true")
+        if (BuildConfig.DEBUG) Log.d(AppConstants.LOG_TAG, "ensureForumSession ready=true")
     }
 
     /**
      * 清除 session
      */
     suspend fun clearSession() {
-        cookieJar.clear()
+        appCookieJar.clear()
         forumSessionReady = false
     }
+
+    fun hasCookie(name: String): Boolean = appCookieJar.hasCookie(name)
 
     /**
      * 执行 GET 请求并返回 HTML Document
@@ -149,7 +154,7 @@ class ForumApiClient {
         referer?.takeIf { it.isNotBlank() }?.let { requestBuilder.header("Referer", it) }
         val request = requestBuilder.build()
         val html = executeForHtml(request)
-        Log.d(AppConstants.LOG_TAG, "GET url=$url size=${html.length}")
+        if (BuildConfig.DEBUG) Log.d(AppConstants.LOG_TAG, "GET url=$url size=${html.length}")
         return org.jsoup.Jsoup.parse(html, ForumDomainConfig.requireBaseUrl())
     }
 
@@ -163,7 +168,7 @@ class ForumApiClient {
             .post(body)
             .build()
         val html = executeForHtml(request)
-        Log.d(AppConstants.LOG_TAG, "POST url=$url size=${html.length}")
+        if (BuildConfig.DEBUG) Log.d(AppConstants.LOG_TAG, "POST url=$url size=${html.length}")
         return html
     }
 
@@ -228,25 +233,4 @@ class ForumApiClient {
     suspend fun <T> withRequestLock(block: suspend () -> T): T {
         return requestMutex.withLock { block() }
     }
-}
-
-/**
- * CookieJar isEmpty 扩展函数
- */
-fun okhttp3.CookieJar.isEmpty(): Boolean {
-    return (this as? ForumApiClient)?.cookieJar?.isEmpty() ?: true
-}
-
-/**
- * CookieJar clear 扩展函数
- */
-fun okhttp3.CookieJar.clear() {
-    (this as? ForumApiClient)?.cookieJar?.clear()
-}
-
-/**
- * CookieJar hasCookie 扩展函数
- */
-fun okhttp3.CookieJar.hasCookie(name: String): Boolean {
-    return (this as? ForumApiClient)?.cookieJar?.hasCookie(name) ?: false
 }

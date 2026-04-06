@@ -6,14 +6,12 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.ImageLoader
-import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.xxyangyoulin.jbforum.AppConstants
 import com.xxyangyoulin.jbforum.ForumRepository
 import okhttp3.OkHttpClient
-import android.os.Build
 
 /**
  * 论坛应用主题
@@ -53,11 +51,7 @@ fun rememberForumImageLoader(): ImageLoader {
             }
             .respectCacheHeaders(false)
             .components {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
+                add(ImageDecoderDecoder.Factory())
             }
             .build()
     }

@@ -11,7 +11,6 @@ import com.xxyangyoulin.jbforum.util.tryNavigate
 import com.xxyangyoulin.jbforum.util.readAppVersionName
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.text.SpannableString
@@ -35,6 +34,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -45,15 +45,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,7 +60,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -87,28 +85,29 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Collections
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.automirrored.outlined.ArrowBackIos
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -184,26 +183,18 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.core.app.ActivityOptionsCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.google.android.material.card.MaterialCardView
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -224,6 +215,7 @@ import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
 import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
+import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
@@ -245,6 +237,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         CookiePersistence.init(applicationContext)
         LoginPersistence.init(applicationContext)
@@ -269,7 +262,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ForumApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
@@ -283,7 +276,6 @@ internal fun ForumApp(viewModel: MainViewModel) {
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
     var autoUpdateInfo by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
     var autoHasNewVersion by remember { mutableStateOf(false) }
-    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val hazeState = remember { HazeState() }
 
     LaunchedEffect(Unit) {
@@ -313,17 +305,10 @@ internal fun ForumApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = if (supportsHaze) Color.Transparent else CardBackground,
-                        scrolledContainerColor = if (supportsHaze) Color.Transparent else CardBackground
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
                     ),
-                    modifier = if (supportsHaze) {
-                        Modifier.hazeEffect(
-                            state = hazeState,
-                            style = HazeMaterials.thin()
-                        ) {
-                            inputScale = HazeInputScale.Fixed(0.5f)
-                        }
-                    } else Modifier,
+                    modifier = Modifier.appTopBarHaze(hazeState),
                     navigationIcon = {
                         state.session?.uid
                             ?.takeIf { it.isNotBlank() }
@@ -369,7 +354,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                         )
                         Box {
                             IconButton(onClick = { topMenuExpanded = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
+                                Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = TitleText)
                             }
                             StyledDropdownMenu(
                                 expanded = topMenuExpanded,
@@ -381,7 +366,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                         topMenuExpanded = false
                                         searchDialogOpen = true
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("浏览历史") },
@@ -390,7 +375,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                         historyItems = ThreadBrowseHistory.load()
                                         historyPanelOpen = true
                                     },
-                                    leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("本地收藏") },
@@ -399,7 +384,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                         viewModel.refreshLocalFavorites()
                                         context.startActivity(LocalFavoritesActivity.createIntent(context))
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Collections, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("个人中心") },
@@ -408,7 +393,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                         context.startActivity(UserCenterActivity.createIntent(context))
                                     },
                                     enabled = state.session != null,
-                                    leadingIcon = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.AccountCircle, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("网站首页") },
@@ -427,7 +412,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                             )
                                         }
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.Home, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("设置") },
@@ -435,7 +420,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                         topMenuExpanded = false
                                         context.startActivity(android.content.Intent(context, SettingsActivity::class.java))
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) }
                                 )
                                 if (state.session == null) {
                                     DropdownMenuItem(
@@ -444,7 +429,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                             topMenuExpanded = false
                                             viewModel.prepareLogin()
                                         },
-                                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }
+                                        leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) }
                                     )
                                 }
                             }
@@ -462,6 +447,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     BoardListScreen(
                         boards = state.boards,
+                        onlineMembersText = state.onlineMembersText,
                         refreshing = state.loading,
                         padding = padding,
                         onRefresh = viewModel::refreshBoards,
@@ -470,8 +456,8 @@ internal fun ForumApp(viewModel: MainViewModel) {
                                 context.startActivity(ThreadsActivity.createIntent(context, it))
                             }
                         },
-                        modifier = if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier,
-                        drawBehindTopBar = supportsHaze
+                        modifier = Modifier.hazeSource(state = hazeState),
+                        drawBehindTopBar = true
                     )
                 }
             }
@@ -971,6 +957,7 @@ internal class LocalFavoritesAdapter(
 @Composable
 internal fun BoardListScreen(
     boards: List<Board>,
+    onlineMembersText: String,
     refreshing: Boolean,
     padding: PaddingValues,
     onRefresh: () -> Unit,
@@ -982,6 +969,7 @@ internal fun BoardListScreen(
     RefreshContainer(
         refreshing = refreshing,
         onRefresh = onRefresh,
+        contentVersion = "${boards.size}-${boards.firstOrNull()?.url.orEmpty()}-$onlineMembersText",
         indicatorTopPadding = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
         modifier = Modifier
             .fillMaxSize()
@@ -1008,7 +996,8 @@ internal fun BoardListScreen(
                 item {
                     HeroCard(
                         title = "讨论板块",
-                        subtitle = "论坛内容已整理成移动端浏览界面"
+                        subtitle = "论坛内容已整理成移动端浏览界面",
+                        highlightedSubtitle = onlineMembersText
                     )
                 }
                 items(boards) { board ->
@@ -1135,7 +1124,6 @@ internal fun QuickReplyDialog(
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 internal fun ThreadLinksDialog(
     links: List<DetectedLink>,
     sourceThreadTitle: String,
@@ -1166,9 +1154,11 @@ internal fun ThreadLinksDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         LinkCategory.tabs.forEach { tab ->
                             SelectablePill(

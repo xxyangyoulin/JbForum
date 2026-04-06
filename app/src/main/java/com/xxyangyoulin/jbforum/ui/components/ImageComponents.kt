@@ -232,7 +232,7 @@ fun PreparedDisplayImage(
                         androidx.compose.ui.layout.ContentScale.Crop -> ImageView.ScaleType.CENTER_CROP
                         else -> ImageView.ScaleType.FIT_CENTER
                     }
-                    val dataKey = displayFile?.absolutePath ?: ""
+                    val dataKey = displayFile.absolutePath
                     if (imageView.tag != dataKey) {
                         imageView.tag = dataKey
                         imageLoader.enqueue(

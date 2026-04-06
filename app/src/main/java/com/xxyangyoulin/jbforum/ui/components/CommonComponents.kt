@@ -1,59 +1,107 @@
 package com.xxyangyoulin.jbforum.ui.components
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.xxyangyoulin.jbforum.AppColors
 import com.xxyangyoulin.jbforum.ForumMessageStatus
+import kotlinx.coroutines.delay
 
 /**
  * 下拉刷新容器
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun RefreshContainer(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    contentVersion: Any? = Unit,
     indicatorTopPadding: Dp = 0.dp,
+    indicatorEnterDurationMillis: Int = 120,
+    indicatorExitDurationMillis: Int = 500,
+    indicatorHoldMillis: Int = 700,
+    indicatorSettleTimeoutMillis: Int = 900,
     content: @Composable () -> Unit
 ) {
     val pullState = rememberPullToRefreshState()
+    var keepIndicatorVisible by remember { mutableStateOf(false) }
+    var refreshStartContentVersion by remember { mutableStateOf<Any?>(null) }
+
+    LaunchedEffect(refreshing, contentVersion) {
+        if (refreshing) {
+            keepIndicatorVisible = true
+            refreshStartContentVersion = contentVersion
+        } else {
+            if (!keepIndicatorVisible) return@LaunchedEffect
+            if (contentVersion == refreshStartContentVersion) {
+                delay(indicatorSettleTimeoutMillis.toLong())
+            }
+            delay(indicatorHoldMillis.toLong())
+            if (!refreshing) {
+                keepIndicatorVisible = false
+            }
+        }
+    }
+
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onRefresh,
         state = pullState,
         modifier = modifier,
         indicator = {
-            PullToRefreshDefaults.Indicator(
+            AnimatedVisibility(
+                visible = refreshing || pullState.distanceFraction > 0f || keepIndicatorVisible,
+                enter = fadeIn(animationSpec = tween(durationMillis = indicatorEnterDurationMillis)),
+                exit = fadeOut(animationSpec = tween(durationMillis = indicatorExitDurationMillis)),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = indicatorTopPadding),
-                isRefreshing = refreshing,
-                state = pullState,
-                color = AppColors.AccentGreen
-            )
+                    .padding(top = indicatorTopPadding)
+            ) {
+                ContainedLoadingIndicator(
+                    containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
+                    indicatorColor = AppColors.AccentGreen
+                )
+            }
         }
     ) {
         content()
@@ -169,4 +217,173 @@ fun StyledDropdownMenu(
         shadowElevation = 6.dp,
         content = content
     )
+}
+
+@Composable
+fun EndOfListIndicator(
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = "到底了",
+        modifier = modifier.fillMaxWidth(),
+        color = AppColors.MutedText,
+        style = MaterialTheme.typography.bodySmall,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun PagingFooterStatus(
+    loading: Boolean,
+    error: String?,
+    hasMore: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when {
+        hasMore && loading -> {
+            Row(
+                modifier = modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ContainedLoadingIndicator(
+                    containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
+                    indicatorColor = AppColors.AccentGreen,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text("加载中", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        hasMore && !error.isNullOrBlank() -> {
+            Text(
+                text = "加载失败，点击重试",
+                modifier = modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRetry),
+                color = AppColors.MutedText,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
+        }
+        hasMore -> {
+            Row(
+                modifier = modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ContainedLoadingIndicator(
+                    containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
+                    indicatorColor = AppColors.AccentGreen,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text("加载中", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        else -> {
+            EndOfListIndicator(modifier = modifier)
+        }
+    }
+}
+
+@Composable
+fun ForumLinkActionDialog(
+    link: String,
+    type: String? = null,
+    message: String,
+    onDismiss: () -> Unit,
+    onOpen: (() -> Unit)? = null,
+    openText: String = "打开",
+    onExternalOpen: ((String) -> Unit)? = null,
+    onFavorite: (() -> Unit)? = null,
+    onOpenCode: (() -> Unit)? = null,
+    onCopy: () -> Unit,
+    showOpenOverride: Boolean? = null,
+    showExternalOpenOverride: Boolean? = null,
+    showFavoriteOverride: Boolean? = null
+) {
+    val externalTarget = normalizeExternalDetectedLink(link)
+    val showOpen = showOpenOverride ?: (onOpen != null && shouldShowInternalOpen(link, type))
+    val showExternalOpen = showExternalOpenOverride ?: (onExternalOpen != null && shouldShowExternalOpen(link, type))
+    val showFavorite = showFavoriteOverride ?: (onFavorite != null)
+    val openCodeAction = onOpenCode
+    val showOpenCode = type == "番号" && openCodeAction != null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("链接操作") },
+        text = { Text(message) },
+        confirmButton = {
+            if (showOpen) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    OutlinedButton(
+                        onClick = { onOpen?.invoke() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(openText)
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            Row {
+                if (showExternalOpen) {
+                    TextButton(onClick = { onExternalOpen?.invoke(externalTarget) }) { Text("外部打开") }
+                }
+                if (showOpenCode) {
+                    TextButton(onClick = { openCodeAction.invoke() }) { Text("打开番号") }
+                }
+                TextButton(onClick = onCopy) { Text("复制") }
+                if (showFavorite) {
+                    TextButton(onClick = { onFavorite?.invoke() }) { Text("收藏") }
+                }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        }
+    )
+}
+
+private fun shouldShowInternalOpen(link: String, type: String?): Boolean {
+    if (type == "番号" || type == "磁力") return false
+    return link.startsWith("http://", ignoreCase = true) ||
+        link.startsWith("https://", ignoreCase = true) ||
+        link.startsWith("ed2k://", ignoreCase = true) ||
+        isCloudShareLink(link)
+}
+
+private fun shouldShowExternalOpen(link: String, type: String?): Boolean {
+    if (type == "番号") return false
+    return link.startsWith("http://", ignoreCase = true) ||
+        link.startsWith("https://", ignoreCase = true) ||
+        link.startsWith("magnet:", ignoreCase = true) ||
+        link.startsWith("ed2k://", ignoreCase = true) ||
+        isCloudShareLink(link)
+}
+
+private fun normalizeExternalDetectedLink(link: String): String {
+    return if (isCloudShareLink(link) && !link.startsWith("http://", ignoreCase = true) && !link.startsWith("https://", ignoreCase = true)) {
+        "https://$link"
+    } else {
+        link
+    }
+}
+
+private fun isCloudShareLink(link: String): Boolean {
+    val normalized = link.lowercase()
+    return normalized.startsWith("pan.baidu.com/") ||
+        normalized.startsWith("pan.quark.cn/") ||
+        normalized.startsWith("aliyundrive.com/") ||
+        normalized.startsWith("www.aliyundrive.com/") ||
+        normalized.startsWith("alipan.com/") ||
+        normalized.startsWith("www.alipan.com/") ||
+        normalized.startsWith("drive.uc.cn/") ||
+        normalized.startsWith("115.com/") ||
+        normalized.startsWith("pan.xunlei.com/") ||
+        normalized.startsWith("123pan.com/") ||
+        normalized.startsWith("www.123pan.com/") ||
+        normalized.startsWith("share.weiyun.com/") ||
+        normalized.startsWith("lanzou") && normalized.contains(".com/")
 }

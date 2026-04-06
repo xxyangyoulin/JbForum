@@ -64,7 +64,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
@@ -99,7 +98,6 @@ data class PreviewLaunchSource(
 class ImagePreviewActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        overridePendingTransition(0, 0)
         enableEdgeToEdge()
         val images = intent.getParcelableArrayListExtraCompat<PreviewImageItem>(EXTRA_IMAGES)
         val initialIndex = intent.getIntExtra(EXTRA_INITIAL_INDEX, 0)
@@ -121,11 +119,7 @@ class ImagePreviewActivity : ComponentActivity() {
                     }
                     .respectCacheHeaders(false)
                     .components {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                            add(ImageDecoderDecoder.Factory())
-                        } else {
-                            add(GifDecoder.Factory())
-                        }
+                        add(ImageDecoderDecoder.Factory())
                     }
                     .build()
             }
@@ -154,11 +148,6 @@ class ImagePreviewActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
     }
 
     companion object {
@@ -415,7 +404,7 @@ private fun ImagePreviewScreen(
                 animateZoom(nextScale, clampedX, clampedY)
             }
 
-            val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+            val transformableState = rememberTransformableState { _, zoomChange, panChange, _ ->
                 zoomAnimationJob?.cancel()
                 dismissAnimationJob?.cancel()
                 showOverlay()
@@ -726,19 +715,15 @@ private suspend fun saveImageToGallery(
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
             put(android.provider.MediaStore.Images.Media.MIME_TYPE, payload.mimeType)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
-                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
-            }
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("无法创建相册文件")
         resolver.openOutputStream(uri)?.use { it.write(payload.bytes) } ?: error("无法写入相册文件")
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            resolver.update(uri, android.content.ContentValues().apply {
-                put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
-            }, null, null)
-        }
+        resolver.update(uri, android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+        }, null, null)
     }
 }
 
