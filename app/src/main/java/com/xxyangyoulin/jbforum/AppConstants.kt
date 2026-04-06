@@ -1,6 +1,11 @@
 package com.xxyangyoulin.jbforum
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import com.xxyangyoulin.jbforum.ui.theme.ForumColors
+import com.xxyangyoulin.jbforum.ui.theme.LightForumColors
 
 /**
  * 应用全局常量
@@ -57,13 +62,32 @@ object AppConstants {
  * UI 颜色常量
  */
 object AppColors {
-    val AppBackground = Color(0xFFF5F6F8)
-    val CardBackground = Color(0xFFFFFFFF)
-    val CardBorder = Color(0xFFE8EBEF)
-    val MutedText = Color(0xFF8B94A1)
-    val TitleText = Color(0xFF1F2937)
-    val AccentGreen = Color(0xFFCB0000)
-    val InputBackground = Color(0xFFF1F3F6)
+    private var palette by mutableStateOf<ForumColors>(LightForumColors)
+
+    internal fun applyPalette(colors: ForumColors) {
+        palette = colors
+    }
+
+    val SurfaceBright: Color
+        get() = palette.surfaceBright
+    val SurfaceContainer: Color
+        get() = palette.surfaceContainer
+    val SurfaceDim: Color
+        get() = palette.surfaceDim
+    val AppBackground: Color
+        get() = palette.appBackground
+    val CardBackground: Color
+        get() = palette.cardBackground
+    val CardBorder: Color
+        get() = palette.cardBorder
+    val MutedText: Color
+        get() = palette.mutedText
+    val TitleText: Color
+        get() = palette.titleText
+    val AccentGreen: Color
+        get() = palette.accent
+    val InputBackground: Color
+        get() = palette.inputBackground
 }
 
 /**

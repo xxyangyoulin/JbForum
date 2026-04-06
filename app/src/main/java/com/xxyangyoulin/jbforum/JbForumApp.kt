@@ -10,6 +10,7 @@ class JbForumApp : Application() {
         MessageStatusPersistence.init(this)
         MessageStatusStore.init()
         ForumDomainConfig.init(this)
+        ThemeModePersistence.init(this)
         LocalImageFavorites.init(this)
         LocalLinkFavorites.init(this)
         ThreadBrowseHistory.init(this)

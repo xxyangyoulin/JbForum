@@ -154,6 +154,8 @@ private fun SettingsScreen(
     var forumDomain by remember { mutableStateOf(ForumDomainConfig.getDomain()) }
     var openThreadInWeb by remember { mutableStateOf(ForumDomainConfig.openThreadInWebDefault()) }
     var showDomainDialog by remember { mutableStateOf(false) }
+    var themeMode by remember { mutableStateOf(ThemeModePersistence.mode) }
+    var showThemeModeDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -194,6 +196,12 @@ private fun SettingsScreen(
     ) {
         // 通用设置
         SettingsSection(title = "通用设置") {
+            SettingsItem(
+                icon = Icons.Outlined.Settings,
+                title = "主题模式",
+                subtitle = themeMode.label,
+                onClick = { showThemeModeDialog = true }
+            )
             SettingsItem(
                 icon = Icons.Outlined.Language,
                 title = "论坛域名",
@@ -433,6 +441,42 @@ private fun SettingsScreen(
         )
     }
 
+    if (showThemeModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeModeDialog = false },
+            title = { Text("主题模式") },
+            text = {
+                Column {
+                    ThemeMode.entries.forEach { mode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    themeMode = mode
+                                    ThemeModePersistence.updateMode(mode)
+                                    showThemeModeDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = mode.label,
+                                color = if (mode == themeMode) AccentGreen else TitleText,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showThemeModeDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     // 退出登录确认
     if (confirmLogout) {
         AlertDialog(
@@ -479,7 +523,7 @@ private fun SettingsSection(
         )
         OutlinedCard(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.medium,
             colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
             border = BorderStroke(0.dp, Color.Transparent)
         ) {

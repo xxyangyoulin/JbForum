@@ -29,7 +29,11 @@ fun readAppVersionName(context: Context): String {
     }.getOrDefault("0.0.0")
 }
 
-fun openThreadByPreference(context: Context, thread: ThreadSummary) {
+fun openThreadByPreference(
+    context: Context,
+    thread: ThreadSummary,
+    includePrefillUserInfo: Boolean = false
+) {
     tryNavigate {
         if (ForumDomainConfig.openThreadInWebDefault() && ForumDomainConfig.baseUrl().isNotBlank()) {
             context.startActivity(
@@ -40,7 +44,13 @@ fun openThreadByPreference(context: Context, thread: ThreadSummary) {
                 )
             )
         } else {
-            context.startActivity(ThreadDetailActivity.createIntent(context, thread))
+            context.startActivity(
+                ThreadDetailActivity.createIntent(
+                    context = context,
+                    thread = thread,
+                    includePrefillUserInfo = includePrefillUserInfo
+                )
+            )
         }
     }
 }

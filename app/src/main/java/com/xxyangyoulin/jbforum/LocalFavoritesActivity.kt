@@ -96,6 +96,7 @@ import coil.ImageLoader
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
+import com.xxyangyoulin.jbforum.ui.theme.PillShape
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 import com.xxyangyoulin.jbforum.ui.components.EndOfListIndicator
 import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
@@ -586,7 +587,7 @@ internal fun LocalLinkFavoritesContent(
 
         if (selectionMode) {
             Surface(
-                shape = RoundedCornerShape(999.dp),
+                shape = PillShape,
                 color = CardBackground,
                 shadowElevation = 10.dp,
                 modifier = Modifier

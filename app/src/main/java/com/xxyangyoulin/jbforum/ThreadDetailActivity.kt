@@ -193,14 +193,20 @@ class ThreadDetailActivity : ComponentActivity() {
         private const val EXTRA_THREAD_PUBLISHED_AT = "thread_published_at"
         private const val EXTRA_THREAD_URL = "thread_url"
 
-        fun createIntent(context: android.content.Context, thread: ThreadSummary): android.content.Intent {
+        fun createIntent(
+            context: android.content.Context,
+            thread: ThreadSummary,
+            includePrefillUserInfo: Boolean = false
+        ): android.content.Intent {
             return android.content.Intent(context, ThreadDetailActivity::class.java).apply {
                 putExtra(EXTRA_THREAD_ID, thread.id)
                 putExtra(EXTRA_THREAD_TITLE, thread.title)
-                putExtra(EXTRA_THREAD_AUTHOR, thread.author)
-                putExtra(EXTRA_THREAD_AUTHOR_UID, thread.authorUid)
-                putExtra(EXTRA_THREAD_AUTHOR_AVATAR_URL, thread.authorAvatarUrl)
-                putExtra(EXTRA_THREAD_PUBLISHED_AT, thread.publishedAt)
+                if (includePrefillUserInfo) {
+                    putExtra(EXTRA_THREAD_AUTHOR, thread.author)
+                    putExtra(EXTRA_THREAD_AUTHOR_UID, thread.authorUid)
+                    putExtra(EXTRA_THREAD_AUTHOR_AVATAR_URL, thread.authorAvatarUrl)
+                    putExtra(EXTRA_THREAD_PUBLISHED_AT, thread.publishedAt)
+                }
                 putExtra(EXTRA_THREAD_URL, thread.url)
             }
         }
@@ -741,9 +747,9 @@ internal fun ThreadDetailScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(CardBackground)
-                            .padding(horizontal = ThreadDetailTitlePadding, vertical = 8.dp)
+                            .padding(start = ThreadDetailTitlePadding, end = ThreadDetailTitlePadding, top = 8.dp, bottom = 0.dp)
                     ) {
-                        Text(detail.title, style = MaterialTheme.typography.titleLarge, color = TitleText, fontWeight = FontWeight.SemiBold)
+                        Text(detail.title, style = MaterialTheme.typography.titleMedium, color = TitleText, fontWeight = FontWeight.SemiBold)
                     }
                 }
             items(

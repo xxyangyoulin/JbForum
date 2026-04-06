@@ -69,6 +69,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -124,7 +125,7 @@ class ImagePreviewActivity : ComponentActivity() {
                     .build()
             }
             val imageDownloadClient = remember(this) { ForumRepository().imageClient() }
-            MaterialTheme {
+            ForumTheme {
                 ImagePreviewScreen(
                     images = images,
                     initialIndex = initialIndex,

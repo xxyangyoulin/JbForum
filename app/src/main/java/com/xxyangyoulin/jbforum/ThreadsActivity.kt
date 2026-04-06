@@ -245,7 +245,7 @@ internal fun ThreadsActivityScreen(
                             text = state.selectedBoard?.title ?: boardTitle.ifBlank { "帖子列表" },
                             maxLines = 1,
                             color = TitleText,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
@@ -422,7 +422,11 @@ internal fun ThreadsActivityScreen(
                         context.startActivity(UserCenterActivity.createIntent(context, uid))
                     },
                     onOpenThread = {
-                        openThreadByPreference(context, it)
+                        openThreadByPreference(
+                            context = context,
+                            thread = it,
+                            includePrefillUserInfo = true
+                        )
                     },
                     onListScrollChanged = viewModel::updateThreadListScroll,
                     onLoadMore = viewModel::loadMoreThreads,
@@ -686,7 +690,7 @@ private fun ThreadListItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpenThread),
-        shape = RoundedCornerShape(Dimens.contentCardCorner),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
         border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
     ) {
@@ -696,7 +700,7 @@ private fun ThreadListItemCard(
                     name = thread.author,
                     uid = thread.authorUid,
                     color = TitleText,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     suffix = thread.metaText.ifBlank { "刚刚发布" }.let { " · $it" },
                     onOpenUserCenter = onOpenUserCenter
                 )
@@ -711,7 +715,7 @@ private fun ThreadListItemCard(
                         name = thread.author,
                         uid = thread.authorUid,
                         avatarSize = 38.dp,
-                        nameTextStyle = MaterialTheme.typography.labelLarge,
+                        nameTextStyle = MaterialTheme.typography.labelMedium,
                         metaText = thread.publishedAt.ifBlank { "刚刚发布" },
                         onOpenUserCenter = onOpenUserCenter
                     )
@@ -750,7 +754,7 @@ private fun ThreadListItemCard(
                     modifier = Modifier
                         .weight(1f)
                         .alignByBaseline(),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TitleText
                 )
@@ -774,12 +778,12 @@ private fun ThreadListItemCard(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFEDEFF2))
+                                .background(CardBackground)
                         } else {
                             Modifier
                                 .wrapContentWidth()
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFEDEFF2))
+                                .background(CardBackground)
                         },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -789,7 +793,7 @@ private fun ThreadListItemCard(
                                     .width(thumbWidth)
                                     .height(108.dp)
                                     .clip(RoundedCornerShape(0.dp))
-                                    .background(Color(0xFFEDEFF2))
+                                    .background(CardBackground)
                             ) {
                                 CachedRemoteDisplayImage(
                                     imageRef = url,

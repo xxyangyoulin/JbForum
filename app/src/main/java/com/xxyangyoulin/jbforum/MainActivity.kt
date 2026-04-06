@@ -218,16 +218,24 @@ import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.components.appTopBarHaze
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
+import com.xxyangyoulin.jbforum.ui.theme.PillShape
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 
-internal val AppBackground = Color(0xFFF5F6F8)
-internal val CardBackground = Color(0xFFFFFFFF)
-internal val CardBorder = Color(0xFFE8EBEF)
-internal val MutedText = Color(0xFF8B94A1)
-internal val TitleText = Color(0xFF1F2937)
-internal val AccentGreen = Color(0xFFCB0000)
-internal val InputBackground = Color(0xFFF1F3F6)
+internal val AppBackground: Color
+    get() = AppColors.AppBackground
+internal val CardBackground: Color
+    get() = AppColors.CardBackground
+internal val CardBorder: Color
+    get() = AppColors.CardBorder
+internal val MutedText: Color
+    get() = AppColors.MutedText
+internal val TitleText: Color
+    get() = AppColors.TitleText
+internal val AccentGreen: Color
+    get() = AppColors.AccentGreen
+internal val InputBackground: Color
+    get() = AppColors.InputBackground
 internal val FloatingButtonEdgePadding = 16.dp
 internal val FloatingButtonStackSpacing = 66.dp
 private const val LogTag = "JbForum"
@@ -1005,17 +1013,17 @@ internal fun BoardListScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenBoard(board) },
-                        shape = RoundedCornerShape(Dimens.contentCardCorner),
+                        shape = MaterialTheme.shapes.medium,
                         colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
                         border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
                     ) {
                         Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
-                            Text(board.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = TitleText)
+                            Text(board.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = TitleText)
                             Spacer(Modifier.height(6.dp))
-                            Text(board.description, style = MaterialTheme.typography.bodyMedium, color = MutedText)
+                            Text(board.description, style = MaterialTheme.typography.bodySmall, color = MutedText)
                             if (board.latestThreadTitle.isNotBlank()) {
                                 Spacer(Modifier.height(10.dp))
-                                Text("最新 · ${board.latestThreadTitle}", style = MaterialTheme.typography.labelMedium, color = AccentGreen)
+                                Text("最新 · ${board.latestThreadTitle}", style = MaterialTheme.typography.labelSmall, color = AccentGreen)
                             }
                         }
                     }
@@ -1064,7 +1072,7 @@ internal fun LoadMoreButton(
     OutlinedButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(999.dp)
+        shape = PillShape
     ) {
         Text(text)
     }
@@ -1074,9 +1082,9 @@ internal fun LoadMoreButton(
 internal fun SelectablePill(text: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(PillShape)
             .background(if (selected) AccentGreen.copy(alpha = 0.16f) else InputBackground)
-            .border(1.dp, if (selected) AccentGreen else CardBorder, RoundedCornerShape(999.dp))
+            .border(1.dp, if (selected) AccentGreen else CardBorder, PillShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xxyangyoulin.jbforum.AppColors
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
+import com.xxyangyoulin.jbforum.ui.theme.PillShape
 
 /**
  * Hero 卡片
@@ -29,7 +30,7 @@ fun HeroCard(
     highlightedSubtitle: String = ""
 ) {
     OutlinedCard(
-        shape = RoundedCornerShape(Dimens.contentCardCorner),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.outlinedCardColors(containerColor = AppColors.CardBackground),
         border = androidx.compose.foundation.BorderStroke(0.dp, Color.Transparent)
     ) {
@@ -40,7 +41,7 @@ fun HeroCard(
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
                 color = AppColors.TitleText,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
@@ -84,9 +85,9 @@ fun HeroCard(
 fun HeaderPill(text: String) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(PillShape)
             .background(AppColors.InputBackground)
-            .border(1.dp, AppColors.CardBorder, RoundedCornerShape(999.dp))
+            .border(1.dp, AppColors.CardBorder, PillShape)
             .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
         Text(
