@@ -52,10 +52,20 @@ data class PostRemark(
     val content: String
 )
 
+data class PostInlineSegment(
+    val text: String,
+    val linkUrl: String? = null
+)
+
 data class PostContentBlock(
     val text: String? = null,
     val imageUrl: String? = null,
-    val imageIndex: Int? = null
+    val imageIndex: Int? = null,
+    val linkUrl: String? = null,
+    val inlineSegments: List<PostInlineSegment> = emptyList(),
+    val quoteHeader: String? = null,
+    val quoteText: String? = null,
+    val quoteLinkUrl: String? = null
 )
 
 data class ThreadDetail(

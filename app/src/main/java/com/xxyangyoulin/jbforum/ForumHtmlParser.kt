@@ -13,6 +13,83 @@ import org.jsoup.nodes.TextNode
  */
 object ForumHtmlParser {
 
+    fun parseCurrentSession(document: Document): UserSession? {
+        val name = document.selectFirst(".member-name a")?.text()?.trim().orEmpty()
+        if (name.isBlank() || name == "帳號") return null
+        return UserSession(
+            username = name,
+            uid = extractUid(document.selectFirst(".member-name a")?.attr("href").orEmpty())
+        )
+    }
+
+    fun parseMessageStatus(document: Document): ForumMessageStatus? {
+        val uid = Regex("""discuz_uid\s*=\s*'(\d+)'""")
+            .find(document.html())
+            ?.groupValues
+            ?.getOrNull(1)
+            .orEmpty()
+        val loggedIn = uid.isNotBlank() && uid != "0"
+        if (!loggedIn) {
+            return ForumMessageStatus()
+        }
+        val avatarUrl = document.selectFirst(
+            "#um .avt img, #hd .avt img, .header-avatar img, a[href*=home.php?mod=space][href*=uid=] img"
+        )?.let(::imageUrl)
+        val noticeUrl = document.selectFirst("#nte_menu, #myprompt_menu a[href*=do=notice]")
+            ?.attr("href")
+            ?.let { absoluteUrl(it, document) }
+            .orEmpty()
+        val messageUrl = document.selectFirst("#msg_menu, #pm_ntc")
+            ?.attr("href")
+            ?.let { absoluteUrl(it, document) }
+            .orEmpty()
+        val unreadCount = document.selectFirst("#nte_menu i")
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+            ?: document.select("#myprompt_menu span.rq")
+                .sumOf { it.text().trim().toIntOrNull() ?: 0 }
+        val hasUnread = unreadCount > 0 || document.selectFirst("#pm_ntc.new, #myprompt.new") != null
+        return ForumMessageStatus(
+            loggedIn = true,
+            unreadCount = unreadCount,
+            hasUnread = hasUnread,
+            avatarUrl = avatarUrl,
+            noticeUrl = noticeUrl,
+            messageUrl = messageUrl
+        )
+    }
+
+    fun parseNoticeItems(document: Document): List<ForumNoticeItem> {
+        return document.select(".nts dl[notice]").mapNotNull { item ->
+            val body = item.selectFirst(".ntc_body") ?: return@mapNotNull null
+            val authorLink = body.selectFirst("a[href*=home.php?mod=space][href*=uid=]")
+            val titleLink = body.select("a[href]").firstOrNull { link ->
+                val href = link.attr("href")
+                href.isNotBlank() &&
+                    !href.contains("home.php?mod=space") &&
+                    link.text().trim().isNotBlank() &&
+                    link.text().trim() != "查看"
+            } ?: return@mapNotNull null
+            val targetLink = body.select("a[href]").lastOrNull { link ->
+                val href = link.attr("href")
+                href.isNotBlank() &&
+                    !href.contains("home.php?mod=space") &&
+                    link.text().trim().isNotBlank()
+            } ?: return@mapNotNull null
+            ForumNoticeItem(
+                id = item.attr("notice").trim(),
+                author = authorLink?.text()?.trim().orEmpty(),
+                authorUid = extractUid(authorLink?.attr("href").orEmpty()),
+                authorAvatarUrl = item.selectFirst(".avt img")?.let(::imageUrl),
+                time = item.selectFirst("dt .xg1")?.text()?.replace('\u00A0', ' ')?.trim().orEmpty(),
+                content = body.text().replace("查看", "").trim(),
+                threadTitle = titleLink.text().trim(),
+                targetUrl = absoluteUrl(targetLink.attr("href"), document)
+            )
+        }
+    }
+
     /**
      * 解析板块列表
      */
@@ -475,18 +552,38 @@ object ForumHtmlParser {
     private fun contentBlocks(node: Element): List<PostContentBlock> {
         val blocks = mutableListOf<PostContentBlock>()
         val textBuffer = StringBuilder()
+        val inlineSegments = mutableListOf<PostInlineSegment>()
         var imageIndex = 0
 
-        fun flushText() {
-            val text = textBuffer.toString()
-                .replace('\u00a0', ' ')
-                .replace(Regex("[ \\t]+"), " ")
-                .replace(Regex("\\n{3,}"), "\n\n")
-                .trim()
-            if (text.isNotBlank()) {
-                blocks += PostContentBlock(text = text)
+        fun flushTextSegment() {
+            val text = textBuffer.toString().replace('\u00a0', ' ')
+            if (text.isNotEmpty()) {
+                inlineSegments += PostInlineSegment(text = text)
             }
             textBuffer.clear()
+        }
+
+        fun flushTextBlock() {
+            flushTextSegment()
+            if (inlineSegments.isEmpty()) return
+            val normalized = inlineSegments.mapIndexedNotNull { index, segment ->
+                var segmentText = segment.text
+                    .replace(Regex("[ \\t]+"), " ")
+                    .replace(Regex("\\n{3,}"), "\n\n")
+                if (index == 0) segmentText = segmentText.trimStart()
+                if (index == inlineSegments.lastIndex) segmentText = segmentText.trimEnd()
+                if (segmentText.isBlank()) null else segment.copy(text = segmentText)
+            }
+            inlineSegments.clear()
+            if (normalized.isEmpty()) return
+            val text = normalized.joinToString(separator = "") { it.text }.trim()
+            if (text.isNotBlank()) {
+                blocks += PostContentBlock(
+                    text = text,
+                    linkUrl = normalized.singleOrNull()?.linkUrl,
+                    inlineSegments = normalized
+                )
+            }
         }
 
         fun walk(current: Node) {
@@ -498,14 +595,62 @@ object ForumHtmlParser {
                         "img" -> {
                             val src = imageUrl(current).orEmpty()
                             if (!src.isBlank() && !isInlineEmotionImage(current, src)) {
-                                flushText()
+                                flushTextBlock()
                                 blocks += PostContentBlock(imageUrl = src, imageIndex = imageIndex++)
+                            }
+                        }
+                        "a" -> {
+                            val href = absoluteUrl(current.attr("href"), current.ownerDocument())
+                            if (href.isNotBlank() && current.selectFirst("img") == null) {
+                                flushTextSegment()
+                                val linkText = current.text()
+                                    .replace('\u00a0', ' ')
+                                    .replace(Regex("[ \\t]+"), " ")
+                                if (linkText.isNotBlank()) {
+                                    inlineSegments += PostInlineSegment(text = linkText, linkUrl = href)
+                                }
+                            } else {
+                                current.childNodes().forEach(::walk)
+                            }
+                        }
+                        "div" -> {
+                            if (current.hasClass("quote")) {
+                                val blockquote = current.selectFirst("blockquote")
+                                val quoteText = blockquote
+                                    ?.text()
+                                    ?.replace('\u00a0', ' ')
+                                    ?.replace(Regex("[ \\t]+"), " ")
+                                    ?.replace(Regex("\\n{3,}"), "\n\n")
+                                    ?.trim()
+                                    .orEmpty()
+                                if (quoteText.isNotBlank()) {
+                                    flushTextBlock()
+                                    val headerLink = blockquote?.selectFirst("a[href]")
+                                    val headerText = headerLink?.text()?.trim().orEmpty()
+                                    val bodyText = blockquote
+                                        ?.clone()
+                                        ?.apply { selectFirst("a[href]")?.remove() }
+                                        ?.text()
+                                        ?.replace('\u00a0', ' ')
+                                        ?.replace(Regex("[ \\t]+"), " ")
+                                        ?.replace(Regex("\\n{3,}"), "\n\n")
+                                        ?.trim()
+                                        .orEmpty()
+                                    blocks += PostContentBlock(
+                                        quoteHeader = headerText.ifBlank { null },
+                                        quoteText = bodyText.ifBlank { quoteText },
+                                        quoteLinkUrl = headerLink?.attr("href")?.let { absoluteUrl(it, current.ownerDocument()) }
+                                    )
+                                }
+                            } else {
+                                current.childNodes().forEach(::walk)
+                                textBuffer.append('\n')
                             }
                         }
                         "style", "script" -> Unit
                         else -> {
                             current.childNodes().forEach(::walk)
-                            if (current.tagName() in setOf("p", "div", "table", "tr")) {
+                            if (current.tagName() in setOf("p", "table", "tr")) {
                                 textBuffer.append('\n')
                             }
                         }
@@ -515,7 +660,7 @@ object ForumHtmlParser {
         }
 
         node.childNodes().forEach(::walk)
-        flushText()
+        flushTextBlock()
         return blocks
     }
 

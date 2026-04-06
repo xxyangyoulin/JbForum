@@ -1,6 +1,11 @@
 package com.xxyangyoulin.jbforum
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +14,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -16,6 +23,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,20 +42,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Message
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +82,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -85,15 +100,25 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.ImageLoader
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import com.xxyangyoulin.jbforum.model.PostSegment
 import com.xxyangyoulin.jbforum.model.splitPostSegments
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
@@ -101,11 +126,16 @@ import com.xxyangyoulin.jbforum.ui.components.ClickableName
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
+import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageDownloadClient
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 import com.xxyangyoulin.jbforum.util.openThreadByPreference
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlin.math.roundToInt
 
 private val ThreadPostAvatarSize = 28.dp
@@ -172,7 +202,11 @@ class ThreadDetailActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class
+)
 @Composable
 internal fun ThreadDetailActivityScreen(
     viewModel: MainViewModel,
@@ -220,6 +254,32 @@ internal fun ThreadDetailActivityScreen(
     val openUserCenter: (String) -> Unit = { uid ->
         context.startActivity(UserCenterActivity.createIntent(context, uid))
     }
+    val openPostLink: (String, String) -> Unit = { url, label ->
+        openThreadDetailLink(
+            context = context,
+            url = url,
+            label = label,
+            openUserCenter = openUserCenter,
+            openThreadWeb = { targetUrl, title ->
+                threadWebLauncher.launch(
+                    ThreadWebViewActivity.createIntent(
+                        context = context,
+                        url = targetUrl,
+                        title = title
+                    )
+                )
+            },
+            openImage = { imageUrl ->
+                imagePreviewLauncher.launch(
+                    ImagePreviewActivity.createIntent(
+                        context = context,
+                        images = listOf(PreviewImageItem(imageRef = imageUrl)),
+                        initialIndex = 0
+                    )
+                )
+            }
+        )
+    }
 
     LaunchedEffect(thread.url) {
         if (thread.url.isNotBlank()) viewModel.openThread(thread)
@@ -250,6 +310,9 @@ internal fun ThreadDetailActivityScreen(
     val topBarAvatarUrl = thread.authorAvatarUrl ?: topBarPost?.authorAvatarUrl
     val topBarAuthor = thread.author.ifBlank { topBarDetail?.author.orEmpty() }
     val topBarPublishedAt = thread.publishedAt.ifBlank { topBarDetail?.publishedAt.orEmpty() }
+    var pendingScrollPid by remember { mutableStateOf<String?>(null) }
+    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val hazeState = remember { HazeState() }
 
     Scaffold(
         containerColor = AppBackground,
@@ -259,9 +322,17 @@ internal fun ThreadDetailActivityScreen(
             TopAppBar(
                 windowInsets = WindowInsets.statusBarsIgnoringVisibility,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = CardBackground,
-                    scrolledContainerColor = CardBackground
+                    containerColor = if (supportsHaze) Color.Transparent else CardBackground,
+                    scrolledContainerColor = if (supportsHaze) Color.Transparent else CardBackground
                 ),
+                modifier = if (supportsHaze) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeMaterials.thin()
+                    ) {
+                        inputScale = HazeInputScale.Fixed(0.5f)
+                    }
+                } else Modifier,
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -309,11 +380,23 @@ internal fun ThreadDetailActivityScreen(
                     TextButton(onClick = viewModel::favoriteThread) {
                         Text("收藏", color = TitleText)
                     }
+                    ForumMessageAction(
+                        status = state.forumMessageStatus,
+                        onClick = {
+                            val targetUrl = state.forumMessageStatus.noticeUrl
+                                .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                            if (targetUrl.isNotBlank()) {
+                                context.startActivity(
+                                    ForumNoticeActivity.createIntent(context, targetUrl)
+                                )
+                            }
+                        }
+                    )
                     Box {
                         IconButton(onClick = { detailMenuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
                         }
-                        DropdownMenu(
+                        StyledDropdownMenu(
                             expanded = detailMenuExpanded,
                             onDismissRequest = { detailMenuExpanded = false }
                         ) {
@@ -328,6 +411,7 @@ internal fun ThreadDetailActivityScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("打开原网页") },
+                                leadingIcon = { Icon(Icons.Default.OpenInBrowser, contentDescription = null) },
                                 onClick = {
                                     detailMenuExpanded = false
                                     val targetUrl = state.selectedThread?.url
@@ -393,9 +477,26 @@ internal fun ThreadDetailActivityScreen(
                 imageDownloadClient = imageDownloadClient,
                 refreshing = state.threadRefreshing,
                 padding = padding,
+                modifier = if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier,
+                drawBehindTopBar = supportsHaze,
                 onRefresh = { viewModel.openThread(thread) },
                 onOpenUserCenter = { uid ->
                     context.startActivity(UserCenterActivity.createIntent(context, uid))
+                },
+                onOpenLink = { url, label ->
+                    val currentThreadId = thread.id.ifBlank { extractThreadId(detail.url) }
+                    val targetThreadId = extractThreadId(url)
+                    val targetPostId = extractPostId(url)
+                    if (url.contains("goto=findpost") &&
+                        currentThreadId.isNotBlank() &&
+                        currentThreadId == targetThreadId &&
+                        !targetPostId.isNullOrBlank() &&
+                        detail.posts.any { it.pid == targetPostId }
+                    ) {
+                        pendingScrollPid = targetPostId
+                    } else {
+                        openPostLink(url, label)
+                    }
                 },
                 onOpenImage = { images, index, launchSource ->
                     val sourceThread = state.selectedThread
@@ -442,15 +543,24 @@ internal fun ThreadDetailActivityScreen(
                     }.onFailure {
                         Toast.makeText(context, it.message ?: "收藏失败", Toast.LENGTH_SHORT).show()
                     }
-                }
+                },
+                targetPostId = pendingScrollPid,
+                onTargetPostHandled = { pendingScrollPid = null }
             )
         } else {
             RefreshContainer(
                 refreshing = state.loading,
                 onRefresh = { viewModel.openThread(thread) },
+                indicatorTopPadding = if (supportsHaze) padding.calculateTopPadding() else 0.dp,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
+                    .padding(
+                        start = padding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        end = padding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        bottom = padding.calculateBottomPadding(),
+                        top = if (supportsHaze) 0.dp else padding.calculateTopPadding()
+                    )
+                    .then(if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier)
             ) {
                 Box(modifier = Modifier.fillMaxSize())
             }
@@ -478,6 +588,7 @@ internal fun ThreadDetailActivityScreen(
             )
         }
     )
+
 
     if (replyDialogOpen && state.threadDetail?.replyAction != null) {
         QuickReplyDialog(
@@ -529,13 +640,18 @@ internal fun ThreadDetailScreen(
     imageDownloadClient: okhttp3.OkHttpClient,
     refreshing: Boolean,
     padding: PaddingValues,
+    modifier: Modifier = Modifier,
+    drawBehindTopBar: Boolean = false,
     onRefresh: () -> Unit,
     onOpenUserCenter: (String) -> Unit,
+    onOpenLink: (String, String) -> Unit,
     onOpenImage: (List<String>, Int, PreviewLaunchSource?) -> Unit,
     onLoadMoreReplies: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
     onRemark: (PostItem) -> Unit,
-    onFavoriteText: (String, String?) -> Unit
+    onFavoriteText: (String, String?) -> Unit,
+    targetPostId: String? = null,
+    onTargetPostHandled: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val configuration = LocalConfiguration.current
@@ -548,6 +664,7 @@ internal fun ThreadDetailScreen(
     val segments = remember(detail.posts) { splitPostSegments(detail.posts) }
     val segmentHeights = remember { mutableStateMapOf<String, Int>() }
     val imageAspectRatios = remember { mutableStateMapOf<String, Float>() }
+    var highlightedPostId by remember { mutableStateOf<String?>(null) }
     val nearBottom by remember(listState, density) {
         derivedStateOf {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
@@ -561,19 +678,43 @@ internal fun ThreadDetailScreen(
     LaunchedEffect(nearBottom) {
         onNearBottomChanged(nearBottom)
     }
+    LaunchedEffect(targetPostId, segments) {
+        val pid = targetPostId ?: return@LaunchedEffect
+        val targetIndex = segments.indexOfFirst { it.postId == pid }
+        if (targetIndex >= 0) {
+            listState.animateScrollToItem(targetIndex)
+            highlightedPostId = pid
+            onTargetPostHandled()
+        }
+    }
+    LaunchedEffect(highlightedPostId) {
+        if (highlightedPostId != null) {
+            delay(800)
+            highlightedPostId = null
+        }
+    }
 
     RefreshContainer(
         refreshing = refreshing,
         onRefresh = onRefresh,
+        indicatorTopPadding = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
         modifier = Modifier
+            .then(modifier)
             .fillMaxSize()
-            .padding(padding)
+            .padding(
+                start = padding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                end = padding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                bottom = padding.calculateBottomPadding(),
+                top = if (drawBehindTopBar) 0.dp else padding.calculateTopPadding()
+            )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(0.dp),
+                contentPadding = PaddingValues(
+                    top = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 item {
@@ -598,6 +739,11 @@ internal fun ThreadDetailScreen(
                 val shape = RoundedCornerShape(0.dp)
                 val segKey = "${segment.postId}-${segment.segmentIndex}"
                 val cachedHeight = segmentHeights[segKey]
+                val highlightAlpha by animateFloatAsState(
+                    targetValue = if (segment.postId == highlightedPostId) 1f else 0f,
+                    animationSpec = tween(durationMillis = 180),
+                    label = "post_highlight"
+                )
 
                 Box(
                     modifier = Modifier
@@ -608,6 +754,13 @@ internal fun ThreadDetailScreen(
                         )
                         .onSizeChanged { segmentHeights[segKey] = it.height }
                         .background(CardBackground, shape)
+                        .drawBehind {
+                            if (highlightAlpha > 0f) {
+                                drawRect(
+                                    color = AccentGreen.copy(alpha = 0.12f * highlightAlpha)
+                                )
+                            }
+                        }
                         .clip(shape)
                 ) {
                     val isFirstPost = segment.postId == detail.posts.firstOrNull()?.pid
@@ -626,8 +779,11 @@ internal fun ThreadDetailScreen(
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
                                         imageAspectRatios = imageAspectRatios,
+                                        onOpenLink = onOpenLink,
                                         onOpenImage = onOpenImage,
-                                        onFavoriteText = onFavoriteText
+                                        onFavoriteText = onFavoriteText,
+                                        sourceThreadTitle = detail.title,
+                                        sourceThreadUrl = detail.url
                                     )
                                     PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
                                 }
@@ -647,8 +803,11 @@ internal fun ThreadDetailScreen(
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
                                         imageAspectRatios = imageAspectRatios,
+                                        onOpenLink = onOpenLink,
                                         onOpenImage = onOpenImage,
-                                        onFavoriteText = onFavoriteText
+                                        onFavoriteText = onFavoriteText,
+                                        sourceThreadTitle = detail.title,
+                                        sourceThreadUrl = detail.url
                                     )
                                 }
                             }
@@ -663,8 +822,11 @@ internal fun ThreadDetailScreen(
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
                                         imageAspectRatios = imageAspectRatios,
+                                        onOpenLink = onOpenLink,
                                         onOpenImage = onOpenImage,
-                                        onFavoriteText = onFavoriteText
+                                        onFavoriteText = onFavoriteText,
+                                        sourceThreadTitle = detail.title,
+                                        sourceThreadUrl = detail.url
                                     )
                                 }
                             }
@@ -680,8 +842,11 @@ internal fun ThreadDetailScreen(
                                             imageDownloadClient = imageDownloadClient,
                                             detailImageResizeWidthPx = detailImageResizeWidthPx,
                                             imageAspectRatios = imageAspectRatios,
+                                            onOpenLink = onOpenLink,
                                             onOpenImage = onOpenImage,
-                                            onFavoriteText = onFavoriteText
+                                            onFavoriteText = onFavoriteText,
+                                            sourceThreadTitle = detail.title,
+                                            sourceThreadUrl = detail.url
                                         )
                                     }
                                     PostFooter(segment.post, imageLoader, onOpenUserCenter, onRemark)
@@ -730,6 +895,7 @@ internal fun PostHeader(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 internal fun PostContentBlocks(
     post: PostItem,
     blocks: List<PostContentBlock>,
@@ -737,58 +903,548 @@ internal fun PostContentBlocks(
     imageDownloadClient: okhttp3.OkHttpClient,
     detailImageResizeWidthPx: Int,
     imageAspectRatios: SnapshotStateMap<String, Float>,
+    onOpenLink: (String, String) -> Unit,
     onOpenImage: (List<String>, Int, PreviewLaunchSource?) -> Unit,
-    onFavoriteText: (String, String?) -> Unit
+    onFavoriteText: (String, String?) -> Unit,
+    sourceThreadTitle: String,
+    sourceThreadUrl: String
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val orderedImages = remember(post.pid) { post.contentBlocks.mapNotNull { it.imageUrl } }
-    val previewImages = remember(orderedImages) { orderedImages.map(ThreadImageCache::previewRef) }
+    val failedImages = remember(post.pid) { mutableStateMapOf<String, Boolean>() }
+    var actionImageUrl by remember(post.pid) { mutableStateOf<String?>(null) }
+    var detectedMenuLink by remember(post.pid) { mutableStateOf<String?>(null) }
+    var detectedMenuType by remember(post.pid) { mutableStateOf<String?>(null) }
+    var detectedMenuLabel by remember(post.pid) { mutableStateOf<String?>(null) }
     blocks.forEachIndexed { index, block ->
+        block.quoteText?.takeIf { it.isNotBlank() }?.let { quoteText ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF5F6F8))
+                    .drawBehind {
+                        drawRect(
+                            color = AccentGreen.copy(alpha = 0.22f),
+                            topLeft = Offset.Zero,
+                            size = Size(6.dp.toPx(), size.height)
+                        )
+                    }
+                    .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
+            ) {
+                block.quoteHeader?.takeIf { it.isNotBlank() }?.let { header ->
+                    Text(
+                        text = header,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedText,
+                        modifier = if (!block.quoteLinkUrl.isNullOrBlank()) {
+                            Modifier.clickable { onOpenLink(block.quoteLinkUrl, header) }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(
+                    text = quoteText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MutedText
+                )
+            }
+            if (index < blocks.lastIndex || !block.text.isNullOrBlank() || !block.imageUrl.isNullOrBlank()) {
+                Spacer(Modifier.height(ThreadDetailSectionSpacing))
+            }
+        }
         block.text?.takeIf { it.isNotBlank() }?.let { text ->
-            SelectableFavoriteText(
-                text = text,
-                style = MaterialTheme.typography.bodyLarge,
-                color = TitleText,
-                onFavorite = onFavoriteText
-            )
+            val inlineSegments = block.inlineSegments
+            val hasInlineLink = inlineSegments.any { !it.linkUrl.isNullOrBlank() }
+            if (!hasInlineLink && block.linkUrl.isNullOrBlank()) {
+                SelectableFavoriteText(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TitleText,
+                    onFavorite = onFavoriteText,
+                    onDetectedLinkAction = { value, type ->
+                        detectedMenuLink = value
+                        detectedMenuType = type
+                    }
+                )
+            } else if (hasInlineLink) {
+                LinkablePostText(
+                    segments = inlineSegments.ifEmpty { listOf(PostInlineSegment(text = text, linkUrl = block.linkUrl)) },
+                    onOpenLink = onOpenLink,
+                    onLongPressLink = { link, label ->
+                        detectedMenuLink = link
+                        detectedMenuType = ThreadLinkRecognizer.detectTypeForSelection(link)
+                        detectedMenuLabel = label
+                    }
+                )
+            } else {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = AccentGreen,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        block.linkUrl?.let { onOpenLink(it, text) }
+                    }
+                )
+            }
             if (index < blocks.lastIndex) Spacer(Modifier.height(ThreadDetailSectionSpacing))
         }
         block.imageUrl?.let { imageUrl ->
-            var launchSource by remember(imageUrl) { mutableStateOf<PreviewLaunchSource?>(null) }
+            var layoutCoordinates by remember(imageUrl) { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
             val cachedRatio = imageAspectRatios[imageUrl]
+            val isFailed = failedImages[imageUrl] ?: ThreadImageCache.isFailed(imageUrl)
+            val previewImageRefs = orderedImages.filterNot { failedImages[it] ?: ThreadImageCache.isFailed(it) }
             CachedRemoteDisplayImage(
                 imageRef = imageUrl,
                 imageLoader = imageLoader,
                 imageDownloadClient = imageDownloadClient,
                 modifier = Modifier
                     .padding(vertical = ThreadDetailImageVerticalPadding)
-                    .onGloballyPositioned { coordinates ->
-                        val bounds = coordinates.boundsInWindow()
-                        launchSource = PreviewLaunchSource(
-                            left = bounds.left.roundToInt(),
-                            top = bounds.top.roundToInt(),
-                            width = bounds.width.roundToInt(),
-                            height = bounds.height.roundToInt()
-                        )
-                        if (coordinates.size.width > 0 && coordinates.size.height > 200) {
-                            imageAspectRatios[imageUrl] = coordinates.size.width.toFloat() / coordinates.size.height.toFloat()
-                        }
-                    }
+                    .onGloballyPositioned { coordinates -> layoutCoordinates = coordinates }
                     .fillMaxWidth()
                     .then(
                         cachedRatio?.let { Modifier.aspectRatio(it) } ?: Modifier
                     )
                     .background(Color(0xFFEDEFF2))
-                    .clickable {
-                        onOpenImage(
-                            previewImages.map(ThreadImageCache::previewRef),
-                            block.imageIndex ?: orderedImages.indexOf(imageUrl).coerceAtLeast(0),
-                            launchSource
-                        )
-                    },
+                    .combinedClickable(
+                        enabled = !isFailed,
+                        onClick = {
+                            val previewIndex = previewImageRefs.indexOf(imageUrl)
+                            if (previewIndex >= 0) {
+                                val launchSource = layoutCoordinates?.let { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    PreviewLaunchSource(
+                                        left = bounds.left.roundToInt(),
+                                        top = bounds.top.roundToInt(),
+                                        width = bounds.width.roundToInt(),
+                                        height = bounds.height.roundToInt()
+                                    )
+                                }
+                                onOpenImage(
+                                    previewImageRefs.map(ThreadImageCache::previewRef),
+                                    previewIndex,
+                                    launchSource
+                                )
+                            }
+                        },
+                        onLongClick = {
+                            actionImageUrl = imageUrl
+                        }
+                    ),
                 resizeWidthPx = detailImageResizeWidthPx,
-                showOriginalDirectly = false
+                showOriginalDirectly = false,
+                onImageReady = { width, height ->
+                    if (width > 0 && height > 0) {
+                        imageAspectRatios[imageUrl] = width.toFloat() / height.toFloat()
+                    }
+                },
+                onFailedStateChanged = { failed ->
+                    failedImages[imageUrl] = failed
+                }
             )
         }
+    }
+    if (detectedMenuLink != null) {
+        val menuLink = detectedMenuLink.orEmpty()
+        val menuLabel = detectedMenuLabel.orEmpty()
+        val canOpenInternally = shouldShowInternalOpen(menuLink, detectedMenuType)
+        val canOpenExternally = shouldShowExternalOpen(menuLink, detectedMenuType)
+        val externalOpenLink = normalizeExternalDetectedLink(menuLink)
+        AlertDialog(
+            onDismissRequest = {
+                detectedMenuLink = null
+                detectedMenuType = null
+                detectedMenuLabel = null
+            },
+            title = { Text("链接操作") },
+            text = { Text(menuLabel.ifBlank { menuLink }) },
+            confirmButton = {
+                if (canOpenInternally) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                detectedMenuLink = null
+                                detectedMenuType = null
+                                detectedMenuLabel = null
+                                onOpenLink(menuLink, menuLabel.ifBlank { menuLink })
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("打开")
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (canOpenExternally) {
+                        TextButton(
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(externalOpenLink)))
+                                detectedMenuLink = null
+                                detectedMenuType = null
+                                detectedMenuLabel = null
+                            }
+                        ) {
+                            Text("外部打开")
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(ClipboardManager::class.java)
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("link", menuLink))
+                            Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
+                            detectedMenuLink = null
+                            detectedMenuType = null
+                            detectedMenuLabel = null
+                        }
+                    ) {
+                        Text("复制")
+                    }
+                    TextButton(
+                        onClick = {
+                            onFavoriteText(menuLink, detectedMenuType)
+                            detectedMenuLink = null
+                            detectedMenuType = null
+                            detectedMenuLabel = null
+                        }
+                    ) {
+                        Text("收藏")
+                    }
+                    TextButton(
+                        onClick = {
+                            detectedMenuLink = null
+                            detectedMenuType = null
+                            detectedMenuLabel = null
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
+    }
+    actionImageUrl?.let { imageUrl ->
+        AlertDialog(
+            onDismissRequest = { actionImageUrl = null },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            actionImageUrl = null
+                            coroutineScope.launch {
+                                val message = runCatching {
+                                    saveThreadImageToGallery(context, imageDownloadClient, imageUrl)
+                                }.fold(
+                                    onSuccess = { "图片已保存到相册" },
+                                    onFailure = { it.message ?: "保存失败" }
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("保存图片")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            actionImageUrl = null
+                            coroutineScope.launch {
+                                val message = runCatching {
+                                    LocalImageFavorites.add(
+                                        context = context,
+                                        client = imageDownloadClient,
+                                        imageRef = imageUrl,
+                                        sourceThreadTitle = sourceThreadTitle,
+                                        sourceThreadUrl = sourceThreadUrl
+                                    )
+                                }.fold(
+                                    onSuccess = { "图片已收藏到本地" },
+                                    onFailure = { it.message ?: "收藏失败" }
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("收藏图片")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { actionImageUrl = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun LinkablePostText(
+    segments: List<PostInlineSegment>,
+    onOpenLink: (String, String) -> Unit,
+    onLongPressLink: (String, String) -> Unit
+) {
+    val annotated = remember(segments) {
+        buildAnnotatedString {
+            segments.forEach { segment ->
+                val start = length
+                append(segment.text)
+                val end = length
+                if (!segment.linkUrl.isNullOrBlank()) {
+                    addStyle(
+                        SpanStyle(color = AccentGreen, textDecoration = TextDecoration.Underline),
+                        start = start,
+                        end = end
+                    )
+                    addStringAnnotation(
+                        tag = "link",
+                        annotation = segment.linkUrl,
+                        start = start,
+                        end = end
+                    )
+                }
+            }
+        }
+    }
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    BasicText(
+        text = annotated,
+        style = MaterialTheme.typography.bodyLarge.copy(color = TitleText),
+        onTextLayout = { textLayoutResult = it },
+        modifier = Modifier.pointerInput(annotated) {
+            detectTapGestures(
+                onTap = { position ->
+                    val layout = textLayoutResult ?: return@detectTapGestures
+                    val offset = layout.getOffsetForPosition(position)
+                    annotated
+                        .getStringAnnotations(tag = "link", start = offset, end = offset)
+                        .firstOrNull()
+                        ?.let { annotation ->
+                            val label = segments.firstOrNull { it.linkUrl == annotation.item }?.text.orEmpty()
+                            onOpenLink(annotation.item, label)
+                        }
+                },
+                onLongPress = { position ->
+                    val layout = textLayoutResult ?: return@detectTapGestures
+                    val offset = layout.getOffsetForPosition(position)
+                    annotated
+                        .getStringAnnotations(tag = "link", start = offset, end = offset)
+                        .firstOrNull()
+                        ?.let { annotation ->
+                            onLongPressLink(
+                                annotation.item,
+                                segments.firstOrNull { it.linkUrl == annotation.item }?.text.orEmpty()
+                            )
+                        }
+                }
+            )
+        }
+    )
+}
+
+private fun openThreadDetailLink(
+    context: android.content.Context,
+    url: String,
+    label: String,
+    openUserCenter: (String) -> Unit,
+    openThreadWeb: (String, String) -> Unit,
+    openImage: (String) -> Unit
+) {
+    val normalized = ForumHtmlParser.absoluteUrl(url)
+    if (normalized.isBlank()) return
+    val httpUrl = normalized.toHttpUrlOrNull()
+    val forumHost = runCatching { ForumDomainConfig.forumHost() }.getOrNull().orEmpty()
+    val isForumLink = httpUrl != null && forumHost.isNotBlank() &&
+        (httpUrl.host == forumHost || httpUrl.host.endsWith(".$forumHost"))
+    if (!isForumLink) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalized)))
+        return
+    }
+
+    if (isImageLink(normalized)) {
+        openImage(normalized)
+        return
+    }
+
+    if (normalized.contains("viewthread") || Regex("""thread-\d+-\d+-\d+""").containsMatchIn(normalized)) {
+        openThreadByPreference(
+            context,
+            ThreadSummary(
+                id = extractThreadId(normalized),
+                title = label.ifBlank { "帖子详情" },
+                author = "",
+                url = normalized
+            )
+        )
+        return
+    }
+
+    if (normalized.contains("forumdisplay") || Regex("""forum-\d+-\d+""").containsMatchIn(normalized)) {
+        context.startActivity(
+            ThreadsActivity.createIntent(
+                context,
+                Board(
+                    title = label.ifBlank { "板块" },
+                    description = "",
+                    url = normalized
+                )
+            )
+        )
+        return
+    }
+
+    if (normalized.contains("home.php?mod=space") && normalized.contains("uid=")) {
+        openUserCenter(ForumHtmlParser.extractUid(normalized))
+        return
+    }
+
+    openThreadWeb(normalized, label.ifBlank { "原网页" })
+}
+
+private fun shouldShowInternalOpen(link: String, type: String?): Boolean {
+    if (type == "番号" || type == "磁力") return false
+    return link.startsWith("http://", ignoreCase = true) ||
+        link.startsWith("https://", ignoreCase = true) ||
+        link.startsWith("ed2k://", ignoreCase = true) ||
+        isCloudShareLink(link)
+}
+
+private fun shouldShowExternalOpen(link: String, type: String?): Boolean {
+    if (type == "番号") return false
+    return link.startsWith("http://", ignoreCase = true) ||
+        link.startsWith("https://", ignoreCase = true) ||
+        link.startsWith("magnet:", ignoreCase = true) ||
+        link.startsWith("ed2k://", ignoreCase = true) ||
+        isCloudShareLink(link)
+}
+
+private fun normalizeExternalDetectedLink(link: String): String {
+    return if (isCloudShareLink(link) && !link.startsWith("http://", ignoreCase = true) && !link.startsWith("https://", ignoreCase = true)) {
+        "https://$link"
+    } else {
+        link
+    }
+}
+
+private fun isCloudShareLink(link: String): Boolean {
+    val normalized = link.lowercase()
+    return normalized.startsWith("pan.baidu.com/") ||
+        normalized.startsWith("pan.quark.cn/") ||
+        normalized.startsWith("aliyundrive.com/") ||
+        normalized.startsWith("www.aliyundrive.com/") ||
+        normalized.startsWith("alipan.com/") ||
+        normalized.startsWith("www.alipan.com/") ||
+        normalized.startsWith("drive.uc.cn/") ||
+        normalized.startsWith("115.com/") ||
+        normalized.startsWith("pan.xunlei.com/") ||
+        normalized.startsWith("123pan.com/") ||
+        normalized.startsWith("www.123pan.com/") ||
+        normalized.startsWith("share.weiyun.com/") ||
+        normalized.matches(Regex("""lanzou[a-z0-9]*\.com/.*""")) ||
+        normalized.matches(Regex("""www\.lanzou[a-z0-9]*\.com/.*"""))
+}
+
+private fun extractThreadId(url: String): String {
+    val tid = url.substringAfter("tid=", "").substringBefore('&').trim()
+    if (tid.isNotBlank()) return tid
+    return Regex("""thread-(\d+)-""").find(url)?.groupValues?.getOrNull(1).orEmpty()
+}
+
+private fun extractPostId(url: String): String? {
+    return url.substringAfter("pid=", "").substringBefore('&').trim().ifBlank { null }
+}
+
+private fun isImageLink(url: String): Boolean {
+    val normalized = url.substringBefore('?').lowercase()
+    return normalized.endsWith(".jpg") ||
+        normalized.endsWith(".jpeg") ||
+        normalized.endsWith(".png") ||
+        normalized.endsWith(".gif") ||
+        normalized.endsWith(".webp")
+}
+
+private suspend fun saveThreadImageToGallery(
+    context: android.content.Context,
+    client: okhttp3.OkHttpClient,
+    imageUrl: String
+) {
+    val payload = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (imageUrl.startsWith("http")) {
+            client.newCall(
+                okhttp3.Request.Builder()
+                    .url(imageUrl)
+                    .header("Referer", ForumDomainConfig.requireBaseUrl())
+                    .build()
+            ).execute().use { response ->
+                if (!response.isSuccessful) error("下载图片失败: ${response.code}")
+                val bytes = response.body?.bytes() ?: error("图片内容为空")
+                val fallback = threadImageFormatFor(imageUrl)
+                val mimeType = response.body?.contentType()?.toString()?.substringBefore(';')
+                    ?.takeIf { it.startsWith("image/") }
+                    ?: fallback.mimeType
+                val extension = threadImageExtensionForMimeType(mimeType) ?: fallback.extension
+                ThreadGalleryImagePayload(bytes, extension, mimeType)
+            }
+        } else {
+            val file = java.io.File(imageUrl).takeIf { it.exists() } ?: error("图片内容为空")
+            val format = threadImageFormatFor(imageUrl)
+            ThreadGalleryImagePayload(file.readBytes(), format.extension, format.mimeType)
+        }
+    }
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val filename = "jbforum_${System.currentTimeMillis()}.${payload.extension}"
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, payload.mimeType)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JbForum")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("无法创建相册文件")
+        resolver.openOutputStream(uri)?.use { it.write(payload.bytes) } ?: error("无法写入相册文件")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            resolver.update(uri, android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+            }, null, null)
+        }
+    }
+}
+
+private data class ThreadGalleryImagePayload(
+    val bytes: ByteArray,
+    val extension: String,
+    val mimeType: String
+)
+
+private fun threadImageFormatFor(imageRef: String): ThreadGalleryImagePayload {
+    val normalized = imageRef.substringBefore('?').lowercase()
+    return when {
+        normalized.endsWith(".gif") -> ThreadGalleryImagePayload(ByteArray(0), "gif", "image/gif")
+        normalized.endsWith(".png") -> ThreadGalleryImagePayload(ByteArray(0), "png", "image/png")
+        normalized.endsWith(".webp") -> ThreadGalleryImagePayload(ByteArray(0), "webp", "image/webp")
+        normalized.endsWith(".jpeg") -> ThreadGalleryImagePayload(ByteArray(0), "jpeg", "image/jpeg")
+        else -> ThreadGalleryImagePayload(ByteArray(0), "jpg", "image/jpeg")
+    }
+}
+
+private fun threadImageExtensionForMimeType(mimeType: String): String? {
+    return when (mimeType.lowercase()) {
+        "image/gif" -> "gif"
+        "image/png" -> "png"
+        "image/webp" -> "webp"
+        "image/jpeg" -> "jpeg"
+        else -> null
     }
 }
 
@@ -817,7 +1473,7 @@ internal fun PostFooter(
         horizontalArrangement = Arrangement.End
     ) {
         Icon(
-            imageVector = Icons.Outlined.ChatBubbleOutline,
+            imageVector = Icons.Outlined.Message,
             contentDescription = "点评",
             tint = MutedText,
             modifier = Modifier

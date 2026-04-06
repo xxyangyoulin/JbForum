@@ -1,6 +1,12 @@
 package com.xxyangyoulin.jbforum
 
 object ThreadLinkRecognizer {
+    data class DisplayLinkMatch(
+        val range: IntRange,
+        val value: String,
+        val type: String?
+    )
+
     private val magnetRegex = Regex("""(?i)magnet:\?[^\s"'<>]+""")
     private val ed2kRegex = Regex("""(?i)ed2k://\|file\|[^\s"'<>]+""")
     private val urlRegex = Regex("""(?i)\bhttps?://[^\s"'<>]+""")
@@ -24,23 +30,33 @@ object ThreadLinkRecognizer {
     private val trailingPunctuation = Regex("""[),.;，。；！？!?\]]+$""")
 
     fun extractDisplayMatches(text: String): List<IntRange> {
+        return extractDisplayLinkMatches(text).map { it.range }
+    }
+
+    fun extractDisplayLinkMatches(text: String): List<DisplayLinkMatch> {
         if (text.isBlank()) return emptyList()
-        val ranges = mutableListOf<IntRange>()
-        collectRanges(urlRegex, text, ranges)
-        collectRanges(magnetRegex, text, ranges)
-        collectRanges(ed2kRegex, text, ranges)
-        collectRanges(cloudLinkRegex, text, ranges)
-        collectRanges(btihRegex, text, ranges)
-        javCodeRegexes.forEach { regex -> collectRanges(regex, text, ranges) }
-        if (ranges.isEmpty()) return emptyList()
-        val sorted = ranges.sortedBy { it.first }
-        val merged = mutableListOf<IntRange>()
-        sorted.forEach { range ->
+        val matches = mutableListOf<DisplayLinkMatch>()
+        collectDisplayMatches(urlRegex, text, "URL", matches)
+        collectDisplayMatches(magnetRegex, text, "磁力", matches)
+        collectDisplayMatches(ed2kRegex, text, "ED2K", matches)
+        collectDisplayMatches(cloudLinkRegex, text, "网盘", matches)
+        collectDisplayMatches(btihRegex, text, "种子ID", matches)
+        javCodeRegexes.forEach { regex -> collectDisplayMatches(regex, text, "番号", matches) }
+        if (matches.isEmpty()) return emptyList()
+        val sorted = matches.sortedBy { it.range.first }
+        val merged = mutableListOf<DisplayLinkMatch>()
+        sorted.forEach { match ->
             val last = merged.lastOrNull()
-            if (last == null || range.first > last.last + 1) {
-                merged += range
+            if (last == null || match.range.first > last.range.last + 1) {
+                merged += match
             } else {
-                merged[merged.lastIndex] = last.first..maxOf(last.last, range.last)
+                val mergedRange = last.range.first..maxOf(last.range.last, match.range.last)
+                val mergedText = text.substring(mergedRange.first, mergedRange.last + 1)
+                merged[merged.lastIndex] = DisplayLinkMatch(
+                    range = mergedRange,
+                    value = mergedText.trim().replace(trailingPunctuation, ""),
+                    type = detectTypeForSelection(mergedText)
+                )
             }
         }
         return merged
@@ -148,6 +164,26 @@ object ThreadLinkRecognizer {
         regex.findAll(text).forEach { match ->
             if (match.range.first >= 0 && match.range.last >= match.range.first) {
                 out += match.range
+            }
+        }
+    }
+
+    private fun collectDisplayMatches(
+        regex: Regex,
+        text: String,
+        type: String,
+        out: MutableList<DisplayLinkMatch>
+    ) {
+        regex.findAll(text).forEach { match ->
+            if (match.range.first >= 0 && match.range.last >= match.range.first) {
+                val raw = match.value.trim().replace(trailingPunctuation, "")
+                if (raw.isNotBlank()) {
+                    out += DisplayLinkMatch(
+                        range = match.range,
+                        value = raw,
+                        type = if (type == "种子ID") detectTypeForSelection(raw) else type
+                    )
+                }
             }
         }
     }

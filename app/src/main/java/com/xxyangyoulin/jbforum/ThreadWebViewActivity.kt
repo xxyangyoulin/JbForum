@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.webkit.CookieManager
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebResourceError
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -18,6 +19,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,13 +28,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -64,6 +70,24 @@ class ThreadWebViewActivity : ComponentActivity() {
     private var webView: WebView? = null
     private var cookiesPersisted = false
     private var restoredWebViewState: Bundle? = null
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = fileChooserCallback
+        fileChooserCallback = null
+        val uris = if (result.resultCode == RESULT_OK) {
+            when {
+                result.data?.clipData != null -> {
+                    val clipData = result.data?.clipData ?: return@registerForActivityResult
+                    Array(clipData.itemCount) { index -> clipData.getItemAt(index).uri }
+                }
+                result.data?.data != null -> arrayOf(result.data!!.data!!)
+                else -> emptyArray()
+            }
+        } else {
+            emptyArray()
+        }
+        callback?.onReceiveValue(uris)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,11 +112,28 @@ class ThreadWebViewActivity : ComponentActivity() {
                         val current = webView
                         if (current != null && current.canGoBack()) current.goBack() else finish()
                     },
+                    onExit = { finish() },
                     onRefresh = {
                         webView?.reload()
                     },
                     onOpenInBrowser = {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(webView?.url ?: threadUrl)))
+                    },
+                    onFileChooserRequest = { fileChooserParams, callback ->
+                        fileChooserCallback?.onReceiveValue(null)
+                        fileChooserCallback = callback
+                        val chooserIntent = fileChooserParams?.createIntent()
+                            ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "*/*"
+                                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                            }
+                        runCatching {
+                            fileChooserLauncher.launch(chooserIntent)
+                        }.onFailure {
+                            fileChooserCallback = null
+                            callback.onReceiveValue(null)
+                        }
                     },
                     onWebViewReady = { created ->
                         webView = created
@@ -188,14 +229,19 @@ private fun ThreadWebViewScreen(
     url: String,
     restoredState: Bundle?,
     onBack: () -> Unit,
+    onExit: () -> Unit,
     onRefresh: () -> Unit,
     onOpenInBrowser: () -> Unit,
+    onFileChooserRequest: (WebChromeClient.FileChooserParams?, ValueCallback<Array<Uri>>) -> Unit,
     onWebViewReady: (WebView) -> Unit
 ) {
     var pageTitle by rememberSaveable(url) { mutableStateOf(title) }
     var progress by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var longPressTarget by remember { mutableStateOf<WebLongPressTarget?>(null) }
+    var actionMagnetLink by remember { mutableStateOf<String?>(null) }
+    var openInBrowserConfirmOpen by remember { mutableStateOf(false) }
+    var topMenuExpanded by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
 
@@ -225,8 +271,25 @@ private fun ThreadWebViewScreen(
                         IconButton(onClick = onRefresh) {
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF1F2937))
                         }
-                        IconButton(onClick = onOpenInBrowser) {
+                        IconButton(onClick = { openInBrowserConfirmOpen = true }) {
                             Icon(Icons.Default.Language, contentDescription = null, tint = Color(0xFF1F2937))
+                        }
+                        Box {
+                            IconButton(onClick = { topMenuExpanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = null, tint = Color(0xFF1F2937))
+                            }
+                            StyledDropdownMenu(
+                                expanded = topMenuExpanded,
+                                onDismissRequest = { topMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("退出页面") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        onExit()
+                                    }
+                                )
+                            }
                         }
                     }
                 )
@@ -246,6 +309,7 @@ private fun ThreadWebViewScreen(
             url = url,
             restoredState = restoredState,
             onWebViewReady = onWebViewReady,
+            onFileChooserRequest = onFileChooserRequest,
             onProgressChanged = { progress = it },
             onPageTitleChanged = { received ->
                 if (received.isNotBlank()) {
@@ -253,7 +317,8 @@ private fun ThreadWebViewScreen(
                 }
             },
             onPageError = { loadError = it },
-            onLongPressTarget = { longPressTarget = it }
+            onLongPressTarget = { longPressTarget = it },
+            onMagnetLinkClick = { actionMagnetLink = it }
         )
         if (loadError != null) {
             WebViewErrorOverlay(
@@ -270,6 +335,36 @@ private fun ThreadWebViewScreen(
                 onDismiss = { longPressTarget = null }
             )
         }
+        actionMagnetLink?.let { magnetLink ->
+            WebMagnetLinkDialog(
+                link = magnetLink,
+                sourceTitle = pageTitle,
+                sourceUrl = url,
+                onDismiss = { actionMagnetLink = null }
+            )
+        }
+        if (openInBrowserConfirmOpen) {
+            AlertDialog(
+                onDismissRequest = { openInBrowserConfirmOpen = false },
+                title = { Text("打开原网页") },
+                text = { Text("确认使用外部浏览器打开当前网页？") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            openInBrowserConfirmOpen = false
+                            onOpenInBrowser()
+                        }
+                    ) {
+                        Text("确认")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { openInBrowserConfirmOpen = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -279,15 +374,18 @@ private fun ThreadWebViewContent(
     url: String,
     restoredState: Bundle?,
     onWebViewReady: (WebView) -> Unit,
+    onFileChooserRequest: (WebChromeClient.FileChooserParams?, ValueCallback<Array<Uri>>) -> Unit,
     onProgressChanged: (Int) -> Unit,
     onPageTitleChanged: (String) -> Unit,
     onPageError: (String?) -> Unit,
-    onLongPressTarget: (WebLongPressTarget?) -> Unit
+    onLongPressTarget: (WebLongPressTarget?) -> Unit,
+    onMagnetLinkClick: (String) -> Unit
 ) {
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding),
+            .padding(padding)
+            .imePadding(),
         factory = { context ->
             WebView(context).apply {
                 ThreadWebViewActivity.injectAppCookiesIntoWebView(url)
@@ -324,8 +422,13 @@ private fun ThreadWebViewContent(
 
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         if (!request.isForMainFrame) return false
+                        val targetUrl = request.url.toString()
+                        if (targetUrl.startsWith("magnet:", ignoreCase = true)) {
+                            onMagnetLinkClick(targetUrl)
+                            return true
+                        }
                         view.loadUrl(
-                            request.url.toString(),
+                            targetUrl,
                             ThreadWebViewActivity.webHeaders(referer = request.requestHeaders["Referer"] ?: ForumDomainConfig.requireBaseUrl())
                         )
                         return true
@@ -348,6 +451,15 @@ private fun ThreadWebViewContent(
 
                     override fun onReceivedTitle(view: WebView?, title: String?) {
                         onPageTitleChanged(title.orEmpty())
+                    }
+
+                    override fun onShowFileChooser(
+                        webView: WebView?,
+                        filePathCallback: ValueCallback<Array<Uri>>,
+                        fileChooserParams: FileChooserParams?
+                    ): Boolean {
+                        onFileChooserRequest(fileChooserParams, filePathCallback)
+                        return true
                     }
                 }
                 onWebViewReady(this)
@@ -424,6 +536,75 @@ private fun WebViewErrorOverlay(
             }
         }
     }
+}
+
+@Composable
+private fun WebMagnetLinkDialog(
+    link: String,
+    sourceTitle: String,
+    sourceUrl: String,
+    onDismiss: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        text = {
+            Column {
+                Text(
+                    text = "外部打开",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                            onDismiss()
+                        }
+                        .padding(vertical = 12.dp),
+                    color = Color(0xFF1F2937)
+                )
+                Text(
+                    text = "复制",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("link", link))
+                            android.widget.Toast.makeText(context, "已复制链接", android.widget.Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        }
+                        .padding(vertical = 12.dp),
+                    color = Color(0xFF1F2937)
+                )
+                Text(
+                    text = "收藏",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            runCatching {
+                                LocalLinkFavorites.add(
+                                    value = link,
+                                    type = "磁力",
+                                    sourceThreadTitle = sourceTitle,
+                                    sourceThreadUrl = sourceUrl
+                                )
+                            }.onSuccess {
+                                android.widget.Toast.makeText(context, "已收藏磁力链接", android.widget.Toast.LENGTH_SHORT).show()
+                            }.onFailure {
+                                android.widget.Toast.makeText(context, it.message ?: "收藏失败", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            onDismiss()
+                        }
+                        .padding(vertical = 12.dp),
+                    color = Color(0xFF1F2937)
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable

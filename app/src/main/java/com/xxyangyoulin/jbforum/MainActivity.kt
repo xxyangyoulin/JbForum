@@ -112,7 +112,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedButton
@@ -200,6 +199,11 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -212,10 +216,13 @@ import pl.droidsonroids.gif.GifDrawable
 import pl.droidsonroids.gif.GifImageView
 import com.xxyangyoulin.jbforum.ui.components.CachedRemoteDisplayImage
 import com.xxyangyoulin.jbforum.ui.components.ClickableName
+import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.HeaderPill
 import com.xxyangyoulin.jbforum.ui.components.HeroCard
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
 import com.xxyangyoulin.jbforum.ui.components.RemarkCard
+import com.xxyangyoulin.jbforum.ui.components.StyledDropdownMenu
 import com.xxyangyoulin.jbforum.ui.components.UserIdentity
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
@@ -262,12 +269,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class)
 @Composable
 internal fun ForumApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val imageLoader = rememberForumImageLoader()
     var searchDialogOpen by remember { mutableStateOf(false) }
     var topMenuExpanded by remember { mutableStateOf(false) }
     var logoutConfirmOpen by remember { mutableStateOf(false) }
@@ -275,6 +283,8 @@ internal fun ForumApp(viewModel: MainViewModel) {
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
     var autoUpdateInfo by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
     var autoHasNewVersion by remember { mutableStateOf(false) }
+    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val hazeState = remember { HazeState() }
 
     LaunchedEffect(Unit) {
         if (GitHubUpdateChecker.shouldAutoCheck()) {
@@ -303,9 +313,31 @@ internal fun ForumApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = CardBackground,
-                        scrolledContainerColor = CardBackground
+                        containerColor = if (supportsHaze) Color.Transparent else CardBackground,
+                        scrolledContainerColor = if (supportsHaze) Color.Transparent else CardBackground
                     ),
+                    modifier = if (supportsHaze) {
+                        Modifier.hazeEffect(
+                            state = hazeState,
+                            style = HazeMaterials.thin()
+                        ) {
+                            inputScale = HazeInputScale.Fixed(0.5f)
+                        }
+                    } else Modifier,
+                    navigationIcon = {
+                        state.session?.uid
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { uid ->
+                                IconButton(onClick = { context.startActivity(UserCenterActivity.createIntent(context, uid)) }) {
+                                    AuthorAvatar(
+                                        imageLoader = imageLoader,
+                                        imageUrl = state.forumMessageStatus.avatarUrl,
+                                        name = state.session?.username.orEmpty(),
+                                        size = 32.dp
+                                    )
+                                }
+                            }
+                    },
                     title = {
                         Column {
                             Text(
@@ -323,11 +355,23 @@ internal fun ForumApp(viewModel: MainViewModel) {
                         }
                     },
                     actions = {
+                        ForumMessageAction(
+                            status = state.forumMessageStatus,
+                            onClick = {
+                                val targetUrl = state.forumMessageStatus.noticeUrl
+                                    .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                                if (targetUrl.isNotBlank()) {
+                                    context.startActivity(
+                                        ForumNoticeActivity.createIntent(context, targetUrl)
+                                    )
+                                }
+                            }
+                        )
                         Box {
                             IconButton(onClick = { topMenuExpanded = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = null, tint = TitleText)
                             }
-                            DropdownMenu(
+                            StyledDropdownMenu(
                                 expanded = topMenuExpanded,
                                 onDismissRequest = { topMenuExpanded = false }
                             ) {
@@ -425,7 +469,9 @@ internal fun ForumApp(viewModel: MainViewModel) {
                             tryNavigate {
                                 context.startActivity(ThreadsActivity.createIntent(context, it))
                             }
-                        }
+                        },
+                        modifier = if (supportsHaze) Modifier.hazeSource(state = hazeState) else Modifier,
+                        drawBehindTopBar = supportsHaze
                     )
                 }
             }
@@ -456,6 +502,7 @@ internal fun ForumApp(viewModel: MainViewModel) {
         if (state.challenge != null) {
             LoginDialog(
                 challenge = state.challenge!!,
+                loading = state.loading,
                 onDismiss = viewModel::clearChallenge,
                 onRefreshCaptcha = viewModel::prepareLogin,
                 onLogin = viewModel::login
@@ -631,8 +678,8 @@ internal class LocalFavoriteViewHolder(
         imageView.setImageDrawable(null)
 
         val displayRef = LocalImageFavorites.thumbnailOrOriginal(item)
-        val phase = if (displayRef != null) CachedImagePhase.Ready else LocalImageFavorites.phase(item)
         if (displayRef == null) {
+            val phase = LocalImageFavorites.phase(item)
             showPlaceholder(
                 when (phase) {
                     CachedImagePhase.Loading -> "加载中..."
@@ -641,12 +688,27 @@ internal class LocalFavoriteViewHolder(
                 }
             )
             prepareJob = scope.launch {
-                runCatching { LocalImageFavorites.ensureThumbnail(item) }
-                onPrepared()
+                val resolved = runCatching { LocalImageFavorites.ensureThumbnail(item) }.getOrNull()
+                withContext(Dispatchers.Main) {
+                    if (boundItemId != item.id) return@withContext
+                    if (resolved != null) {
+                        bindDisplayRef(item, resolved, onPrepared)
+                    } else {
+                        onPrepared()
+                    }
+                }
             }
             return
         }
 
+        bindDisplayRef(item, displayRef, onPrepared)
+    }
+
+    private fun bindDisplayRef(
+        item: LocalFavoriteImage,
+        displayRef: String,
+        onPrepared: () -> Unit
+    ) {
         if (isGifImage(displayRef)) {
             currentGifRef = displayRef
             showPlaceholder("加载中...")
@@ -912,21 +974,35 @@ internal fun BoardListScreen(
     refreshing: Boolean,
     padding: PaddingValues,
     onRefresh: () -> Unit,
-    onOpenBoard: (Board) -> Unit
+    onOpenBoard: (Board) -> Unit,
+    modifier: Modifier = Modifier,
+    drawBehindTopBar: Boolean = false
 ) {
     val listState = rememberLazyListState()
     RefreshContainer(
         refreshing = refreshing,
         onRefresh = onRefresh,
+        indicatorTopPadding = if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding)
+            .then(modifier)
+            .padding(
+                start = padding.calculateLeftPadding(LocalLayoutDirection.current),
+                end = padding.calculateRightPadding(LocalLayoutDirection.current),
+                bottom = padding.calculateBottomPadding(),
+                top = if (drawBehindTopBar) 0.dp else padding.calculateTopPadding()
+            )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
-                contentPadding = PaddingValues(Dimens.contentCardPadding),
+                contentPadding = PaddingValues(
+                    start = Dimens.contentCardPadding,
+                    end = Dimens.contentCardPadding,
+                    bottom = Dimens.contentCardPadding,
+                    top = Dimens.contentCardPadding + if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
             ) {
                 item {
@@ -1323,6 +1399,7 @@ internal fun ThreadHistoryPanel(
                             onClick = onClear,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .navigationBarsPadding()
                                 .padding(horizontal = 10.dp, vertical = 8.dp)
                         ) {
                             Text("一键清除")
@@ -1337,6 +1414,7 @@ internal fun ThreadHistoryPanel(
 @Composable
 internal fun LoginDialog(
     challenge: CaptchaChallenge,
+    loading: Boolean,
     onDismiss: () -> Unit,
     onRefreshCaptcha: () -> Unit,
     onLogin: (String, String, String) -> Unit
@@ -1393,9 +1471,9 @@ internal fun LoginDialog(
                     LoginPersistence.save(username, password)
                     onLogin(username, password, captcha)
                 },
-                enabled = username.isNotBlank() && password.isNotBlank() && captcha.isNotBlank()
+                enabled = !loading && username.isNotBlank() && password.isNotBlank() && captcha.isNotBlank()
             ) {
-                Text("登录")
+                Text(if (loading) "登录中" else "登录")
             }
         },
         dismissButton = {

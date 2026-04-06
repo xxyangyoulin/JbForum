@@ -105,6 +105,20 @@ object ThreadDetailDiskCache {
                                             put("text", block.text ?: "")
                                             put("imageUrl", block.imageUrl ?: "")
                                             put("imageIndex", block.imageIndex ?: -1)
+                                            put("linkUrl", block.linkUrl ?: "")
+                                            put("quoteHeader", block.quoteHeader ?: "")
+                                            put("quoteText", block.quoteText ?: "")
+                                            put("quoteLinkUrl", block.quoteLinkUrl ?: "")
+                                            put("inlineSegments", JSONArray().apply {
+                                                block.inlineSegments.forEach { segment ->
+                                                    put(
+                                                        JSONObject().apply {
+                                                            put("text", segment.text)
+                                                            put("linkUrl", segment.linkUrl ?: "")
+                                                        }
+                                                    )
+                                                }
+                                            })
                                         }
                                     )
                                 }
@@ -145,9 +159,26 @@ object ThreadDetailDiskCache {
                     PostContentBlock(
                         text = item.optString("text").ifBlank { null },
                         imageUrl = item.optString("imageUrl").ifBlank { null },
-                        imageIndex = item.optInt("imageIndex").takeIf { it >= 0 }
+                        imageIndex = item.optInt("imageIndex").takeIf { it >= 0 },
+                        linkUrl = item.optString("linkUrl").ifBlank { null },
+                        inlineSegments = parseInlineSegments(item.optJSONArray("inlineSegments")),
+                        quoteHeader = item.optString("quoteHeader").ifBlank { null },
+                        quoteText = item.optString("quoteText").ifBlank { null },
+                        quoteLinkUrl = item.optString("quoteLinkUrl").ifBlank { null }
                     )
                 )
+            }
+        }
+    }
+
+    private fun parseInlineSegments(array: JSONArray?): List<PostInlineSegment> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val text = item.optString("text")
+                if (text.isBlank()) continue
+                add(PostInlineSegment(text = text, linkUrl = item.optString("linkUrl").ifBlank { null }))
             }
         }
     }

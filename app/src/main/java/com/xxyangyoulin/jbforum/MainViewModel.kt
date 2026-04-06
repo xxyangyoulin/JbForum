@@ -24,6 +24,10 @@ data class AppState(
     val userFavorites: List<UserThreadItem> = emptyList(),
     val userFavoritesNextPageUrl: String? = null,
     val userProfile: UserProfile? = null,
+    val userThreadsLoaded: Boolean = false,
+    val userRepliesLoaded: Boolean = false,
+    val userFavoritesLoaded: Boolean = false,
+    val userProfileLoaded: Boolean = false,
     val localFavoriteImages: List<LocalFavoriteImage> = emptyList(),
     val userCenterUid: String = "",
     val userCenterVisible: Boolean = false,
@@ -37,6 +41,7 @@ data class AppState(
     val remarkForm: RemarkForm? = null,
     val challenge: CaptchaChallenge? = null,
     val session: UserSession? = null,
+    val forumMessageStatus: ForumMessageStatus = ForumMessageStatus(),
     val loading: Boolean = false,
     val message: String? = null
 )
@@ -48,6 +53,7 @@ class MainViewModel(
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
+        _state.update { it.copy(forumMessageStatus = MessageStatusStore.value()) }
         viewModelScope.launch {
             _state.collect { current ->
                 AppStateSnapshot.save(
@@ -62,6 +68,16 @@ class MainViewModel(
                 )
             }
         }
+        viewModelScope.launch {
+            MessageStatusStore.status.collect { status ->
+                _state.update {
+                    it.copy(
+                        forumMessageStatus = status,
+                        session = if (!status.loggedIn) null else it.session
+                    )
+                }
+            }
+        }
         val cachedBoards = repository.loadCachedBoards()
         if (cachedBoards.isNotEmpty()) {
             _state.update { it.copy(boards = cachedBoards) }
@@ -69,15 +85,22 @@ class MainViewModel(
         launchTask {
             _state.update { it.copy(loading = true, message = null) }
             val boards = repository.loadBoards()
-            val session = repository.currentSession()
-            _state.update { it.copy(boards = boards, session = session, localFavoriteImages = LocalImageFavorites.load(), loading = false) }
+            _state.update {
+                it.copy(
+                    boards = boards,
+                    session = repository.latestSession(),
+                    localFavoriteImages = LocalImageFavorites.load(),
+                    forumMessageStatus = repository.latestMessageStatus(),
+                    loading = false
+                )
+            }
         }
     }
 
     fun refreshBoards() = launchTask {
         _state.update { it.copy(loading = true, message = null, selectedBoard = null, selectedThread = null, threadDetail = null, detectedLinks = emptyList(), userCenterVisible = false) }
         val boards = repository.loadBoards()
-        _state.update { it.copy(boards = boards, loading = false) }
+        _state.update { it.copy(boards = boards, forumMessageStatus = repository.latestMessageStatus(), loading = false) }
     }
 
     fun openBoard(board: Board, forceRefresh: Boolean = false) = launchTask {
@@ -99,7 +122,14 @@ class MainViewModel(
         val page = repository.loadThreads(board.url)
         boardCache[board.url] = BoardCache(page.threads, page.nextPageUrl)
         ThreadListDiskCache.save(board.url, page)
-        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+        _state.update {
+            it.copy(
+                threads = page.threads,
+                threadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false
+            )
+        }
     }
 
     fun searchThreads(keyword: String) = launchTask {
@@ -120,7 +150,14 @@ class MainViewModel(
             )
         }
         val page = repository.searchThreads(query)
-        _state.update { it.copy(threads = page.threads, threadsNextPageUrl = page.nextPageUrl, loading = false) }
+        _state.update {
+            it.copy(
+                threads = page.threads,
+                threadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false
+            )
+        }
     }
 
     fun openThread(thread: ThreadSummary) = launchTask {
@@ -148,6 +185,7 @@ class MainViewModel(
             it.copy(
                 threadDetail = detail,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 loading = false,
                 threadRefreshing = false
             )
@@ -192,7 +230,15 @@ class MainViewModel(
         val challenge = state.value.challenge ?: error("请先获取验证码")
         _state.update { it.copy(loading = true, message = null) }
         val session = repository.login(username, password, captcha, challenge)
-        _state.update { it.copy(session = session, challenge = null, loading = false, message = "已登录为 ${session.username}") }
+        _state.update {
+            it.copy(
+                session = session,
+                challenge = null,
+                forumMessageStatus = repository.latestMessageStatus(),
+                loading = false,
+                message = "已登录为 ${session.username}"
+            )
+        }
         val current = state.value
         when {
             current.selectedThread != null -> openThread(current.selectedThread)
@@ -247,6 +293,7 @@ class MainViewModel(
                 remarkForm = null,
                 threadDetail = refreshed,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 loading = false,
                 message = "点评已提交"
             )
@@ -270,7 +317,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 threadDetail = mergedDetail,
-                detectedLinks = links
+                detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -287,6 +335,7 @@ class MainViewModel(
                 loading = false,
                 threadDetail = refreshed,
                 detectedLinks = links,
+                forumMessageStatus = repository.latestMessageStatus(),
                 message = "收藏成功"
             )
         }
@@ -308,7 +357,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 threads = mergedThreads,
-                threadsNextPageUrl = mergedNextPageUrl
+                threadsNextPageUrl = mergedNextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -316,10 +366,11 @@ class MainViewModel(
     fun openUserCenter(uid: String? = null, forceRefresh: Boolean = false) = launchTask {
         val session = state.value.session ?: error("请先登录")
         val targetUid = uid ?: session.uid.ifBlank { error("无法识别当前用户 UID") }
+        val defaultTab = if (targetUid == session.uid) "favorite" else "thread"
         val cached = userCenterCache[targetUid]
         _state.update {
             it.copy(
-                loading = forceRefresh || cached == null,
+                loading = forceRefresh || cached == null || !cached.profileLoaded || !cached.isTabLoaded(defaultTab),
                 message = null,
                 userCenterUid = targetUid,
                 userCenterVisible = true,
@@ -330,35 +381,173 @@ class MainViewModel(
                 userRepliesNextPageUrl = cached?.repliesNextPageUrl,
                 userFavorites = cached?.favorites ?: emptyList(),
                 userFavoritesNextPageUrl = cached?.favoritesNextPageUrl,
-                userProfile = cached?.profile
+                userProfile = cached?.profile,
+                userThreadsLoaded = cached?.threadsLoaded == true,
+                userRepliesLoaded = cached?.repliesLoaded == true,
+                userFavoritesLoaded = cached?.favoritesLoaded == true,
+                userProfileLoaded = cached?.profileLoaded == true
             )
         }
-        if (cached != null && !forceRefresh) return@launchTask
-        val threads = repository.loadUserThreads(targetUid, "thread")
-        val replies = repository.loadUserThreads(targetUid, "reply")
-        val favorites = if (targetUid == session.uid) repository.loadUserFavorites() else UserThreadListPage(emptyList(), null)
-        val profile = repository.loadUserProfile(targetUid)
-        userCenterCache[targetUid] = UserCenterCache(
-            threads = threads.items,
-            threadsNextPageUrl = threads.nextPageUrl,
-            replies = replies.items,
-            repliesNextPageUrl = replies.nextPageUrl,
-            favorites = favorites.items,
-            favoritesNextPageUrl = favorites.nextPageUrl,
-            profile = profile
-        )
+        if (cached != null && !forceRefresh && cached.profileLoaded && cached.isTabLoaded(defaultTab)) return@launchTask
+        val profile = ForumRepository().loadUserProfile(targetUid)
+        val updatedCache = when (defaultTab) {
+            "favorite" -> {
+                val favorites = ForumRepository().loadUserFavorites()
+                (cached ?: UserCenterCache()).copy(
+                    favorites = favorites.items,
+                    favoritesNextPageUrl = favorites.nextPageUrl,
+                    favoritesLoaded = true,
+                    profile = profile,
+                    profileLoaded = true
+                )
+            }
+            else -> {
+                val threads = ForumRepository().loadUserThreads(targetUid, "thread")
+                (cached ?: UserCenterCache()).copy(
+                    threads = threads.items,
+                    threadsNextPageUrl = threads.nextPageUrl,
+                    threadsLoaded = true,
+                    profile = profile,
+                    profileLoaded = true
+                )
+            }
+        }
+        userCenterCache[targetUid] = updatedCache
         _state.update {
             it.copy(
                 loading = false,
-                userThreads = threads.items,
-                userThreadsNextPageUrl = threads.nextPageUrl,
-                userReplies = replies.items,
-                userRepliesNextPageUrl = replies.nextPageUrl,
-                userFavorites = favorites.items,
-                userFavoritesNextPageUrl = favorites.nextPageUrl,
-                userProfile = profile,
+                userThreads = updatedCache.threads,
+                userThreadsNextPageUrl = updatedCache.threadsNextPageUrl,
+                userReplies = updatedCache.replies,
+                userRepliesNextPageUrl = updatedCache.repliesNextPageUrl,
+                userFavorites = updatedCache.favorites,
+                userFavoritesNextPageUrl = updatedCache.favoritesNextPageUrl,
+                userProfile = updatedCache.profile,
+                userThreadsLoaded = updatedCache.threadsLoaded,
+                userRepliesLoaded = updatedCache.repliesLoaded,
+                userFavoritesLoaded = updatedCache.favoritesLoaded,
+                userProfileLoaded = updatedCache.profileLoaded,
+                forumMessageStatus = repository.latestMessageStatus(),
                 userCenterUid = targetUid,
                 userCenterVisible = true
+            )
+        }
+    }
+
+    fun ensureUserCenterTabLoaded(tab: String) = launchTask {
+        val session = state.value.session ?: error("请先登录")
+        val uid = state.value.userCenterUid.ifBlank { session.uid.ifBlank { error("无法识别当前用户 UID") } }
+        val current = userCenterCache[uid] ?: UserCenterCache()
+        if (current.isTabLoaded(tab)) return@launchTask
+        _state.update { it.copy(loading = true, message = null) }
+        val updated = when (tab) {
+            "favorite" -> {
+                if (uid == session.uid) {
+                    val favorites = repository.loadUserFavorites()
+                    current.copy(
+                        favorites = favorites.items,
+                        favoritesNextPageUrl = favorites.nextPageUrl,
+                        favoritesLoaded = true
+                    )
+                } else {
+                    current.copy(favoritesLoaded = true)
+                }
+            }
+            "reply" -> {
+                val replies = repository.loadUserThreads(uid, "reply")
+                current.copy(
+                    replies = replies.items,
+                    repliesNextPageUrl = replies.nextPageUrl,
+                    repliesLoaded = true
+                )
+            }
+            else -> {
+                val threads = repository.loadUserThreads(uid, "thread")
+                current.copy(
+                    threads = threads.items,
+                    threadsNextPageUrl = threads.nextPageUrl,
+                    threadsLoaded = true
+                )
+            }
+        }
+        userCenterCache[uid] = updated
+        _state.update {
+            it.copy(
+                loading = false,
+                userThreads = updated.threads,
+                userThreadsNextPageUrl = updated.threadsNextPageUrl,
+                userReplies = updated.replies,
+                userRepliesNextPageUrl = updated.repliesNextPageUrl,
+                userFavorites = updated.favorites,
+                userFavoritesNextPageUrl = updated.favoritesNextPageUrl,
+                userThreadsLoaded = updated.threadsLoaded,
+                userRepliesLoaded = updated.repliesLoaded,
+                userFavoritesLoaded = updated.favoritesLoaded,
+                forumMessageStatus = repository.latestMessageStatus()
+            )
+        }
+    }
+
+    fun refreshUserCenterTab(tab: String, uid: String? = null) = launchTask {
+        val session = state.value.session ?: error("请先登录")
+        val targetUid = uid ?: state.value.userCenterUid.ifBlank { session.uid.ifBlank { error("无法识别当前用户 UID") } }
+        val current = userCenterCache[targetUid] ?: UserCenterCache()
+        _state.update { it.copy(loading = true, message = null) }
+        val profile = repository.loadUserProfile(targetUid)
+        val updated = when (tab) {
+            "favorite" -> {
+                if (targetUid == session.uid) {
+                    val favorites = repository.loadUserFavorites()
+                    current.copy(
+                        favorites = favorites.items,
+                        favoritesNextPageUrl = favorites.nextPageUrl,
+                        favoritesLoaded = true,
+                        profile = profile,
+                        profileLoaded = true
+                    )
+                } else {
+                    current.copy(profile = profile, profileLoaded = true)
+                }
+            }
+            "reply" -> {
+                val replies = repository.loadUserThreads(targetUid, "reply")
+                current.copy(
+                    replies = replies.items,
+                    repliesNextPageUrl = replies.nextPageUrl,
+                    repliesLoaded = true,
+                    profile = profile,
+                    profileLoaded = true
+                )
+            }
+            "profile" -> current.copy(profile = profile, profileLoaded = true)
+            else -> {
+                val threads = repository.loadUserThreads(targetUid, "thread")
+                current.copy(
+                    threads = threads.items,
+                    threadsNextPageUrl = threads.nextPageUrl,
+                    threadsLoaded = true,
+                    profile = profile,
+                    profileLoaded = true
+                )
+            }
+        }
+        userCenterCache[targetUid] = updated
+        _state.update {
+            it.copy(
+                loading = false,
+                userCenterUid = targetUid,
+                userThreads = updated.threads,
+                userThreadsNextPageUrl = updated.threadsNextPageUrl,
+                userReplies = updated.replies,
+                userRepliesNextPageUrl = updated.repliesNextPageUrl,
+                userFavorites = updated.favorites,
+                userFavoritesNextPageUrl = updated.favoritesNextPageUrl,
+                userProfile = updated.profile,
+                userThreadsLoaded = updated.threadsLoaded,
+                userRepliesLoaded = updated.repliesLoaded,
+                userFavoritesLoaded = updated.favoritesLoaded,
+                userProfileLoaded = updated.profileLoaded,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -382,7 +571,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userThreads = merged,
-                userThreadsNextPageUrl = page.nextPageUrl
+                userThreadsNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -406,7 +596,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userReplies = merged,
-                userRepliesNextPageUrl = page.nextPageUrl
+                userRepliesNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -430,7 +621,8 @@ class MainViewModel(
             it.copy(
                 loading = false,
                 userFavorites = merged,
-                userFavoritesNextPageUrl = page.nextPageUrl
+                userFavoritesNextPageUrl = page.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus()
             )
         }
     }
@@ -455,6 +647,7 @@ class MainViewModel(
                 loading = false,
                 userFavorites = refreshed.items,
                 userFavoritesNextPageUrl = refreshed.nextPageUrl,
+                forumMessageStatus = repository.latestMessageStatus(),
                 message = "已删除收藏"
             )
         }
@@ -471,6 +664,10 @@ class MainViewModel(
                 userFavorites = emptyList(),
                 userFavoritesNextPageUrl = null,
                 userProfile = null,
+                userThreadsLoaded = false,
+                userRepliesLoaded = false,
+                userFavoritesLoaded = false,
+                userProfileLoaded = false,
                 userCenterUid = ""
             )
         }
@@ -546,7 +743,7 @@ class MainViewModel(
 
     fun refreshSession() = launchTask {
         val session = repository.currentSession()
-        _state.update { it.copy(session = session) }
+        _state.update { it.copy(session = session, forumMessageStatus = repository.latestMessageStatus()) }
     }
 
     fun refreshLocalFavorites() {
@@ -601,14 +798,27 @@ private data class ThreadDetailCache(
 )
 
 private data class UserCenterCache(
-    val threads: List<UserThreadItem>,
-    val threadsNextPageUrl: String?,
-    val replies: List<UserThreadItem>,
-    val repliesNextPageUrl: String?,
-    val favorites: List<UserThreadItem>,
-    val favoritesNextPageUrl: String?,
-    val profile: UserProfile?
-)
+    val threads: List<UserThreadItem> = emptyList(),
+    val threadsNextPageUrl: String? = null,
+    val replies: List<UserThreadItem> = emptyList(),
+    val repliesNextPageUrl: String? = null,
+    val favorites: List<UserThreadItem> = emptyList(),
+    val favoritesNextPageUrl: String? = null,
+    val profile: UserProfile? = null,
+    val threadsLoaded: Boolean = false,
+    val repliesLoaded: Boolean = false,
+    val favoritesLoaded: Boolean = false,
+    val profileLoaded: Boolean = false
+) {
+    fun isTabLoaded(tab: String): Boolean {
+        return when (tab) {
+            "favorite" -> favoritesLoaded
+            "reply" -> repliesLoaded
+            "profile" -> profileLoaded
+            else -> threadsLoaded
+        }
+    }
+}
 
 private const val THREAD_DETAIL_CACHE_LIMIT = 20
 

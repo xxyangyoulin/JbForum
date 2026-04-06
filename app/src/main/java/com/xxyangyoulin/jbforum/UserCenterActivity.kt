@@ -65,6 +65,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.xxyangyoulin.jbforum.ui.components.AuthorAvatar
 import com.xxyangyoulin.jbforum.ui.components.RefreshContainer
+import com.xxyangyoulin.jbforum.ui.components.ForumMessageAction
 import com.xxyangyoulin.jbforum.ui.components.UserThreadCard
 import com.xxyangyoulin.jbforum.ui.theme.Dimens
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
@@ -143,6 +144,20 @@ internal fun UserCenterActivityScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = TitleText)
                     }
+                },
+                actions = {
+                    ForumMessageAction(
+                        status = state.forumMessageStatus,
+                        onClick = {
+                            val targetUrl = state.forumMessageStatus.noticeUrl
+                                .ifBlank { ForumDomainConfig.baseUrl() + "home.php?mod=space&do=notice" }
+                            if (targetUrl.isNotBlank()) {
+                                context.startActivity(
+                                    ForumNoticeActivity.createIntent(context, targetUrl)
+                                )
+                            }
+                        }
+                    )
                 }
             )
         }
@@ -158,8 +173,13 @@ internal fun UserCenterActivityScreen(
             repliesNextPageUrl = state.userRepliesNextPageUrl,
             imageLoader = imageLoader,
             refreshing = state.loading,
+            threadsLoaded = state.userThreadsLoaded,
+            repliesLoaded = state.userRepliesLoaded,
+            favoritesLoaded = state.userFavoritesLoaded,
+            profileLoaded = state.userProfileLoaded,
             padding = padding,
-            onRefresh = { viewModel.openUserCenter(state.userCenterUid.ifBlank { uid }, forceRefresh = true) },
+            onRefresh = { tab -> viewModel.refreshUserCenterTab(tab, state.userCenterUid.ifBlank { uid }) },
+            onTabChange = viewModel::ensureUserCenterTabLoaded,
             onLoadMoreFavorites = viewModel::loadMoreUserFavorites,
             onLoadMoreThreads = viewModel::loadMoreUserThreads,
             onLoadMoreReplies = viewModel::loadMoreUserReplies,
@@ -191,8 +211,13 @@ internal fun UserCenterScreen(
     repliesNextPageUrl: String?,
     imageLoader: ImageLoader,
     refreshing: Boolean,
+    threadsLoaded: Boolean,
+    repliesLoaded: Boolean,
+    favoritesLoaded: Boolean,
+    profileLoaded: Boolean,
     padding: PaddingValues,
-    onRefresh: () -> Unit,
+    onRefresh: (String) -> Unit,
+    onTabChange: (String) -> Unit,
     onLoadMoreFavorites: () -> Unit,
     onLoadMoreThreads: () -> Unit,
     onLoadMoreReplies: () -> Unit,
@@ -202,103 +227,131 @@ internal fun UserCenterScreen(
     var tab by rememberSaveable(isOwnProfile) { mutableStateOf(if (isOwnProfile) "favorite" else "thread") }
     val listState = rememberLazyListState()
     var confirmDeleteFavorite by remember { mutableStateOf<UserThreadItem?>(null) }
+    val currentTabLoaded = when (tab) {
+        "favorite" -> favoritesLoaded
+        "reply" -> repliesLoaded
+        "profile" -> profileLoaded
+        else -> threadsLoaded
+    }
+    val initialLoading = !profileLoaded || !currentTabLoaded
     RefreshContainer(
-        refreshing = refreshing,
-        onRefresh = onRefresh,
+        refreshing = refreshing || initialLoading,
+        onRefresh = { onRefresh(tab) },
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(Dimens.contentCardPadding),
-                verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
-            ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             profile?.let {
-                item {
-                    OutlinedCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(Dimens.contentCardCorner),
-                        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
-                        border = BorderStroke(0.dp, Color.Transparent)
-                    ) {
-                        Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AuthorAvatar(imageLoader = imageLoader, imageUrl = it.avatarUrl, name = it.username, size = 52.dp)
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text(it.username, color = TitleText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                                    Text("UID: ${it.uid}", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(Dimens.contentCardPadding),
+                    shape = RoundedCornerShape(Dimens.contentCardCorner),
+                    colors = CardDefaults.outlinedCardColors(containerColor = CardBackground),
+                    border = BorderStroke(0.dp, Color.Transparent)
+                ) {
+                    Column(modifier = Modifier.padding(Dimens.contentCardPadding)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AuthorAvatar(imageLoader = imageLoader, imageUrl = it.avatarUrl, name = it.username, size = 52.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(it.username, color = TitleText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                Text("UID: ${it.uid}", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Spacer(Modifier.height(Dimens.contentCardSpacing))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (isOwnProfile) {
+                                SelectablePill("收藏", tab == "favorite") {
+                                    tab = "favorite"
+                                    onTabChange("favorite")
                                 }
                             }
-                            Spacer(Modifier.height(Dimens.contentCardSpacing))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (isOwnProfile) {
-                                    SelectablePill("收藏", tab == "favorite") { tab = "favorite" }
-                                }
-                                SelectablePill("主题", tab == "thread") { tab = "thread" }
-                                SelectablePill("回复", tab == "reply") { tab = "reply" }
-                                SelectablePill("资料", tab == "profile") { tab = "profile" }
+                            SelectablePill("主题", tab == "thread") {
+                                tab = "thread"
+                                onTabChange("thread")
+                            }
+                            SelectablePill("回复", tab == "reply") {
+                                tab = "reply"
+                                onTabChange("reply")
+                            }
+                            SelectablePill("资料", tab == "profile") {
+                                tab = "profile"
                             }
                         }
                     }
                 }
             }
-            when (tab) {
-                "favorite" -> {
-                    items(favorites) { item ->
-                        UserThreadCard(
-                            item = item,
-                            onOpenThread = onOpenThread,
-                            showDeleteAction = isOwnProfile,
-                            onDelete = { confirmDeleteFavorite = it }
-                        )
-                    }
-                    if (favoritesNextPageUrl != null) {
-                        item {
-                            LoadMoreButton(
-                                text = "加载更多收藏",
-                                onClick = onLoadMoreFavorites
-                            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    contentPadding = PaddingValues(
+                        start = Dimens.contentCardPadding,
+                        end = Dimens.contentCardPadding,
+                        bottom = Dimens.contentCardPadding
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.contentCardSpacing)
+                ) {
+                    when (tab) {
+                        "favorite" -> {
+                            items(favorites) { item ->
+                                UserThreadCard(
+                                    item = item,
+                                    onOpenThread = onOpenThread,
+                                    showDeleteAction = isOwnProfile,
+                                    onDelete = { confirmDeleteFavorite = it }
+                                )
+                            }
+                            if (favoritesNextPageUrl != null) {
+                                item {
+                                    LoadMoreButton(
+                                        text = "加载更多收藏",
+                                        onClick = onLoadMoreFavorites
+                                    )
+                                }
+                            }
+                        }
+                        "thread" -> {
+                            items(threads) { item ->
+                                UserThreadCard(item = item, onOpenThread = onOpenThread)
+                            }
+                            if (threadsNextPageUrl != null) {
+                                item {
+                                    LoadMoreButton(
+                                        text = "加载更多主题",
+                                        onClick = onLoadMoreThreads
+                                    )
+                                }
+                            }
+                        }
+                        "reply" -> {
+                            items(replies) { item ->
+                                UserThreadCard(item = item, onOpenThread = onOpenThread)
+                            }
+                            if (repliesNextPageUrl != null) {
+                                item {
+                                    LoadMoreButton(
+                                        text = "加载更多回复",
+                                        onClick = onLoadMoreReplies
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            profile?.let {
+                                item { UserProfileCard(title = "基本信息", items = it.basics) }
+                                item { UserProfileCard(title = "活跃概况", items = it.activity) }
+                                item { UserProfileCard(title = "统计信息", items = it.credits + it.stats) }
+                            }
                         }
                     }
                 }
-                "thread" -> {
-                    items(threads) { item ->
-                        UserThreadCard(item = item, onOpenThread = onOpenThread)
-                    }
-                    if (threadsNextPageUrl != null) {
-                        item {
-                            LoadMoreButton(
-                                text = "加载更多主题",
-                                onClick = onLoadMoreThreads
-                            )
-                        }
-                    }
-                }
-                "reply" -> {
-                    items(replies) { item ->
-                        UserThreadCard(item = item, onOpenThread = onOpenThread)
-                    }
-                    if (repliesNextPageUrl != null) {
-                        item {
-                            LoadMoreButton(
-                                text = "加载更多回复",
-                                onClick = onLoadMoreReplies
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    profile?.let {
-                        item { UserProfileCard(title = "基本信息", items = it.basics) }
-                        item { UserProfileCard(title = "活跃概况", items = it.activity) }
-                        item { UserProfileCard(title = "统计信息", items = it.credits + it.stats) }
-                    }
-                }
-            }
             }
         }
     }

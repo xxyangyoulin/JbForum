@@ -10,9 +10,22 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -52,15 +65,60 @@ fun ThumbnailGeneratingPlaceholder(
     text: String = "缩略图生成中...",
     modifier: Modifier = Modifier
 ) {
+    val shimmerAlpha by rememberInfiniteTransition(label = "image_placeholder")
+        .animateFloat(
+            initialValue = 0.45f,
+            targetValue = 0.85f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "image_placeholder_alpha"
+        )
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = AppColors.MutedText,
-            style = MaterialTheme.typography.bodySmall
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Image,
+                contentDescription = null,
+                tint = AppColors.MutedText.copy(alpha = shimmerAlpha),
+                modifier = Modifier.height(28.dp)
+            )
+            Text(
+                text = text,
+                color = AppColors.MutedText.copy(alpha = shimmerAlpha),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadFailedPlaceholder(
+    modifier: Modifier = Modifier,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = modifier.clickable(onClick = onRetry),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.BrokenImage,
+                contentDescription = null,
+                tint = AppColors.MutedText.copy(alpha = 0.85f),
+                modifier = Modifier.height(28.dp)
+            )
+            Text(text = "点击重试", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -73,7 +131,9 @@ fun AutoPlayGifImage(
     modifier: Modifier = Modifier,
     contentScale: androidx.compose.ui.layout.ContentScale = androidx.compose.ui.layout.ContentScale.Fit,
     shouldAnimate: Boolean = true,
-    resizeWidthPx: Int? = null
+    resizeWidthPx: Int? = null,
+    onImageReady: ((Int, Int) -> Unit)? = null,
+    onLoadError: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var isVisible by remember(imageRef) { mutableStateOf(false) }
@@ -111,6 +171,7 @@ fun AutoPlayGifImage(
                 gifImageView.tag = imageRef
                 runCatching {
                     val drawable = GifDrawable(File(imageRef))
+                    onImageReady?.invoke(drawable.intrinsicWidth, drawable.intrinsicHeight)
                     resizeWidthPx?.takeIf { it > 0 }?.let { width ->
                         drawable.setBounds(0, 0, width, (width / drawable.intrinsicWidth.toFloat() * drawable.intrinsicHeight).roundToInt())
                     }
@@ -118,6 +179,7 @@ fun AutoPlayGifImage(
                     gifImageView.setImageDrawable(drawable)
                 }.onFailure {
                     gifImageView.setImageDrawable(null)
+                    onLoadError?.invoke()
                 }
             }
             (gifImageView.drawable as? GifDrawable)?.let { drawable ->
@@ -137,7 +199,9 @@ fun PreparedDisplayImage(
     imageLoader: ImageLoader,
     modifier: Modifier = Modifier,
     contentScale: androidx.compose.ui.layout.ContentScale = androidx.compose.ui.layout.ContentScale.Fit,
-    resizeWidthPx: Int? = null
+    resizeWidthPx: Int? = null,
+    onLoadError: (() -> Unit)? = null,
+    onLoadSuccess: ((Int, Int) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val displayFile = displayRef?.let(::File)
@@ -147,7 +211,9 @@ fun PreparedDisplayImage(
                 imageRef = displayFile.absolutePath,
                 modifier = modifier,
                 contentScale = contentScale,
-                resizeWidthPx = resizeWidthPx
+                resizeWidthPx = resizeWidthPx,
+                onImageReady = onLoadSuccess,
+                onLoadError = onLoadError
             )
         } else {
             AndroidView(
@@ -172,11 +238,20 @@ fun PreparedDisplayImage(
                         imageLoader.enqueue(
                             ImageRequest.Builder(context)
                                 .data(displayFile)
-                                .crossfade(150)
                                 .allowHardware(false)
                                 .bitmapConfig(Bitmap.Config.RGB_565)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
+                                .listener(
+                                    onSuccess = { _, result ->
+                                        val width = result.drawable.intrinsicWidth
+                                        val height = result.drawable.intrinsicHeight
+                                        if (width > 0 && height > 0) {
+                                            onLoadSuccess?.invoke(width, height)
+                                        }
+                                    },
+                                    onError = { _, _ -> onLoadError?.invoke() }
+                                )
                                 .target(imageView)
                                 .build()
                         )
@@ -206,7 +281,11 @@ fun CachedRemoteDisplayImage(
     modifier: Modifier = Modifier,
     contentScale: androidx.compose.ui.layout.ContentScale = androidx.compose.ui.layout.ContentScale.Fit,
     resizeWidthPx: Int? = null,
-    showOriginalDirectly: Boolean = false
+    showOriginalDirectly: Boolean = false,
+    placeholderMinHeight: androidx.compose.ui.unit.Dp = 160.dp,
+    trackVisibility: Boolean = true,
+    onImageReady: ((Int, Int) -> Unit)? = null,
+    onFailedStateChanged: ((Boolean) -> Unit)? = null
 ) {
     if (showOriginalDirectly) {
         val context = LocalContext.current
@@ -247,32 +326,84 @@ fun CachedRemoteDisplayImage(
     var phase by remember(imageRef) {
         mutableStateOf(if (displayRef != null) com.xxyangyoulin.jbforum.CachedImagePhase.Ready else ThreadImageCache.phase(imageRef))
     }
+    var failed by remember(imageRef) { mutableStateOf(ThreadImageCache.isFailed(imageRef)) }
+    var retryNonce by remember(imageRef) { mutableStateOf(0) }
     val context = LocalContext.current
-    var isVisible by remember(imageRef) { mutableStateOf(true) }
-    val trackedModifier = modifier.onGloballyPositioned { coordinates ->
-        val bounds = coordinates.boundsInWindow()
-        val windowHeight = (context as? Activity)?.window?.decorView?.height?.toFloat()
-            ?.coerceAtLeast(1f)
-            ?: 1f
-        isVisible = bounds.bottom > 0f && bounds.top < windowHeight
+    var isVisible by remember(imageRef, trackVisibility) { mutableStateOf(!trackVisibility) }
+    val trackedModifier = if (trackVisibility) {
+        modifier.onGloballyPositioned { coordinates ->
+            val bounds = coordinates.boundsInWindow()
+            val windowHeight = (context as? Activity)?.window?.decorView?.height?.toFloat()
+                ?.coerceAtLeast(1f)
+                ?: 1f
+            isVisible = bounds.bottom > 0f && bounds.top < windowHeight
+        }
+    } else {
+        modifier
     }
-    LaunchedEffect(imageRef, isVisible, displayRef, phase) {
-        if (isVisible && (phase != com.xxyangyoulin.jbforum.CachedImagePhase.Ready || displayRef == null)) {
+    val placeholderModifier = trackedModifier.heightIn(min = placeholderMinHeight)
+    LaunchedEffect(failed) {
+        onFailedStateChanged?.invoke(failed)
+    }
+    LaunchedEffect(imageRef, isVisible, displayRef, phase, retryNonce) {
+        if (!failed && isVisible && (phase != com.xxyangyoulin.jbforum.CachedImagePhase.Ready || displayRef == null)) {
             phase = ThreadImageCache.phase(imageRef)
-            displayRef = runCatching {
-                ThreadImageCache.ensureCached(imageDownloadClient, imageRef)
-            }.getOrNull() ?: displayRef
-            phase = if (displayRef != null) com.xxyangyoulin.jbforum.CachedImagePhase.Ready else ThreadImageCache.phase(imageRef)
+            try {
+                val resolved = ThreadImageCache.ensureCached(imageDownloadClient, imageRef)
+                if (resolved != null) {
+                    displayRef = resolved
+                    failed = false
+                    ThreadImageCache.clearFailed(imageRef)
+                    phase = com.xxyangyoulin.jbforum.CachedImagePhase.Ready
+                } else {
+                    phase = ThreadImageCache.phase(imageRef)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                displayRef = null
+                failed = true
+                ThreadImageCache.markFailed(imageRef)
+                phase = com.xxyangyoulin.jbforum.CachedImagePhase.Loading
+            }
         }
     }
-    PreparedDisplayImage(
-        displayRef = displayRef,
-        phase = phase,
-        imageLoader = imageLoader,
-        modifier = trackedModifier,
-        contentScale = contentScale,
-        resizeWidthPx = resizeWidthPx
-    )
+    if (failed && displayRef == null) {
+        LoadFailedPlaceholder(
+            modifier = placeholderModifier,
+            onRetry = {
+                failed = false
+                ThreadImageCache.clearFailed(imageRef)
+                phase = com.xxyangyoulin.jbforum.CachedImagePhase.Loading
+                retryNonce += 1
+            }
+        )
+    } else if (displayRef == null) {
+        ThumbnailGeneratingPlaceholder(
+            text = when (phase) {
+                com.xxyangyoulin.jbforum.CachedImagePhase.Loading -> "加载中..."
+                com.xxyangyoulin.jbforum.CachedImagePhase.Compressing -> "压缩中..."
+                com.xxyangyoulin.jbforum.CachedImagePhase.Ready -> "加载中..."
+            },
+            modifier = placeholderModifier
+        )
+    } else {
+        PreparedDisplayImage(
+            displayRef = displayRef,
+            phase = phase,
+            imageLoader = imageLoader,
+            modifier = trackedModifier,
+            contentScale = contentScale,
+            resizeWidthPx = resizeWidthPx,
+            onLoadSuccess = onImageReady,
+            onLoadError = {
+                ThreadImageCache.clearCached(imageRef)
+                displayRef = null
+                failed = true
+                ThreadImageCache.markFailed(imageRef)
+            }
+        )
+    }
 }
 
 /**

@@ -1,6 +1,7 @@
 package com.xxyangyoulin.jbforum
 
 import android.os.Bundle
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -69,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,6 +89,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import coil.ImageLoader
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.materials.HazeMaterials
 import com.xxyangyoulin.jbforum.ui.theme.ForumTheme
 import com.xxyangyoulin.jbforum.ui.theme.rememberForumImageLoader
 import com.xxyangyoulin.jbforum.util.buildHighlightedText
@@ -132,7 +139,12 @@ class LocalFavoritesActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    ExperimentalLayoutApi::class,
+    dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi::class
+)
 @Composable
 internal fun LocalFavoritesActivityScreen(
     viewModel: MainViewModel,
@@ -143,6 +155,9 @@ internal fun LocalFavoritesActivityScreen(
     val context = LocalContext.current
     val imageLoader = rememberForumImageLoader()
     var tab by rememberSaveable { mutableStateOf(if (initialTab == LocalFavoritesActivity.TAB_LINK) LocalFavoritesActivity.TAB_LINK else LocalFavoritesActivity.TAB_IMAGE) }
+    val supportsHaze = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val enableHaze = supportsHaze
+    val hazeState = remember { HazeState() }
     var linkItems by remember { mutableStateOf(LocalLinkFavorites.load()) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let { data ->
@@ -177,9 +192,19 @@ internal fun LocalFavoritesActivityScreen(
             TopAppBar(
                 windowInsets = WindowInsets.statusBarsIgnoringVisibility,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = CardBackground,
-                    scrolledContainerColor = CardBackground
+                    containerColor = if (enableHaze) Color.Transparent else CardBackground,
+                    scrolledContainerColor = if (enableHaze) Color.Transparent else CardBackground
                 ),
+                modifier = if (enableHaze) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeMaterials.thin()
+                    ) {
+                        inputScale = HazeInputScale.Fixed(0.5f)
+                    }
+                } else {
+                    Modifier
+                },
                 title = { Text("本地收藏", color = TitleText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -222,6 +247,8 @@ internal fun LocalFavoritesActivityScreen(
                 imageLoader = imageLoader,
                 refreshing = state.loading,
                 padding = padding,
+                modifier = if (enableHaze) Modifier.hazeSource(state = hazeState) else Modifier,
+                drawBehindTopBar = enableHaze,
                 onRefresh = viewModel::refreshLocalFavorites,
                 onDeleteSelected = viewModel::deleteLocalFavorites,
                 onOpenImage = { index, launchSource ->
@@ -247,6 +274,8 @@ internal fun LocalFavoritesActivityScreen(
             LocalLinkFavoritesContent(
                 items = linkItems,
                 padding = padding,
+                modifier = if (enableHaze) Modifier.hazeSource(state = hazeState) else Modifier,
+                drawBehindTopBar = enableHaze,
                 onLinksChanged = { linkItems = LocalLinkFavorites.load() },
                 onOpenThread = { item ->
                     val sourceUrl = item.sourceThreadUrl
@@ -271,6 +300,8 @@ internal fun LocalFavoritesActivityScreen(
 internal fun LocalLinkFavoritesContent(
     items: List<LocalFavoriteLink>,
     padding: PaddingValues,
+    modifier: Modifier = Modifier,
+    drawBehindTopBar: Boolean = false,
     onLinksChanged: () -> Unit,
     onOpenThread: (LocalFavoriteLink) -> Unit
 ) {
@@ -328,13 +359,23 @@ internal fun LocalLinkFavoritesContent(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(padding)
+            .padding(
+                start = padding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                end = padding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                bottom = padding.calculateBottomPadding(),
+                top = if (drawBehindTopBar) 0.dp else padding.calculateTopPadding()
+            )
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = if (selectionMode) 84.dp else 12.dp),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                top = 12.dp + if (drawBehindTopBar) padding.calculateTopPadding() else 0.dp,
+                end = 12.dp,
+                bottom = if (selectionMode) 84.dp else 12.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {
@@ -537,9 +578,12 @@ internal fun SelectableFavoriteText(
     text: String,
     style: androidx.compose.ui.text.TextStyle,
     color: Color,
-    onFavorite: (String, String?) -> Unit
+    onFavorite: (String, String?) -> Unit,
+    onDetectedLinkAction: ((String, String?) -> Unit)? = null
 ) {
     val textSizeSp = style.fontSize.takeIf { it != androidx.compose.ui.unit.TextUnit.Unspecified } ?: 16.sp
+    val detectedMatches = remember(text) { ThreadLinkRecognizer.extractDisplayLinkMatches(text) }
+    val detectedMatchesState = rememberUpdatedState(detectedMatches)
     AndroidView(
         factory = {
             androidx.appcompat.widget.AppCompatTextView(it).apply {
@@ -593,6 +637,35 @@ internal fun SelectableFavoriteText(
 
                     override fun onDestroyActionMode(mode: android.view.ActionMode?) = Unit
                 }
+                val gestureDetector = android.view.GestureDetector(
+                    context,
+                    object : android.view.GestureDetector.SimpleOnGestureListener() {
+                        private fun detectLink(event: android.view.MotionEvent): ThreadLinkRecognizer.DisplayLinkMatch? {
+                            val layout = layout ?: return null
+                            val x = (event.x - totalPaddingLeft + scrollX).toInt()
+                            val y = (event.y - totalPaddingTop + scrollY).toInt()
+                            val line = layout.getLineForVertical(y)
+                            val offset = layout.getOffsetForHorizontal(line, x.toFloat())
+                            return detectedMatchesState.value
+                                .firstOrNull { offset in it.range }
+                        }
+
+                        override fun onSingleTapUp(e: android.view.MotionEvent): Boolean {
+                            val match = detectLink(e) ?: return false
+                            onDetectedLinkAction?.invoke(match.value, match.type)
+                            return true
+                        }
+
+                        override fun onLongPress(e: android.view.MotionEvent) {
+                            val match = detectLink(e) ?: return
+                            onDetectedLinkAction?.invoke(match.value, match.type)
+                        }
+                    }
+                )
+                setOnTouchListener { _, event ->
+                    val handled = gestureDetector.onTouchEvent(event)
+                    handled
+                }
             }
         },
         update = { textView ->
@@ -611,6 +684,8 @@ internal fun LocalFavoritesScreen(
     imageLoader: ImageLoader,
     refreshing: Boolean,
     padding: PaddingValues,
+    modifier: Modifier = Modifier,
+    drawBehindTopBar: Boolean = false,
     onRefresh: () -> Unit,
     onDeleteSelected: (Set<String>) -> Unit,
     onOpenImage: (Int, PreviewLaunchSource?) -> Unit
@@ -648,9 +723,14 @@ internal fun LocalFavoritesScreen(
         selectedIds.clear()
     }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(padding)
+            .padding(
+                start = padding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                end = padding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                bottom = padding.calculateBottomPadding(),
+                top = if (drawBehindTopBar) 0.dp else padding.calculateTopPadding()
+            )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
@@ -663,7 +743,7 @@ internal fun LocalFavoritesScreen(
                         val halfSpacingPx = spacingPx / 2
                         setPadding(
                             0,
-                            0,
+                            if (drawBehindTopBar) androidContext.resources.displayMetrics.density.times(padding.calculateTopPadding().value).roundToInt() else 0,
                             0,
                             (11 * resources.displayMetrics.density).roundToInt()
                         )

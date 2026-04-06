@@ -52,7 +52,6 @@ fun AuthorAvatar(
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
-                .crossfade(150)
                 .allowHardware(false)
                 .bitmapConfig(Bitmap.Config.RGB_565)
                 .memoryCachePolicy(CachePolicy.ENABLED)

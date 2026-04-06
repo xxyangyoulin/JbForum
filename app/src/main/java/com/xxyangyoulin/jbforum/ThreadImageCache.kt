@@ -20,6 +20,7 @@ enum class CachedImagePhase {
 
 object ThreadImageCache {
     private val cacheMutex = Mutex()
+    private val failedRefs = mutableSetOf<String>()
     @Volatile
     private var appContext: Context? = null
 
@@ -95,6 +96,30 @@ object ThreadImageCache {
         if (!shouldCompressStaticImage(originalFile, imageRef)) return CachedImagePhase.Ready
         val thumbnailFile = thumbnailFile(context, imageRef)
         return if (thumbnailFile.exists()) CachedImagePhase.Ready else CachedImagePhase.Compressing
+    }
+
+    fun clearCached(imageRef: String) {
+        val context = appContext ?: return
+        originalFile(context, imageRef).takeIf { it.exists() }?.delete()
+        thumbnailFile(context, imageRef).takeIf { it.exists() }?.delete()
+    }
+
+    fun markFailed(imageRef: String) {
+        synchronized(failedRefs) {
+            failedRefs += imageRef
+        }
+    }
+
+    fun clearFailed(imageRef: String) {
+        synchronized(failedRefs) {
+            failedRefs -= imageRef
+        }
+    }
+
+    fun isFailed(imageRef: String): Boolean {
+        return synchronized(failedRefs) {
+            imageRef in failedRefs
+        }
     }
 
     private fun originalFile(context: Context, imageRef: String): File {

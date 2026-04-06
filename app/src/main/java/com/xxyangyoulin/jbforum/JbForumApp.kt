@@ -7,6 +7,8 @@ class JbForumApp : Application() {
         super.onCreate()
         CookiePersistence.init(this)
         LoginPersistence.init(this)
+        MessageStatusPersistence.init(this)
+        MessageStatusStore.init()
         ForumDomainConfig.init(this)
         LocalImageFavorites.init(this)
         LocalLinkFavorites.init(this)

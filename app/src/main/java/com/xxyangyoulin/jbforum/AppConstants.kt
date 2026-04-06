@@ -9,6 +9,7 @@ object AppConstants {
     // SharedPreferences 名称
     const val PREFS_COOKIES = "forum_cookies"
     const val PREFS_LOGIN = "forum_login"
+    const val PREFS_MESSAGE_STATUS = "forum_message_status"
     const val PREFS_SETTINGS = "forum_settings"
     const val PREFS_LOCAL_FAVORITES = "local_image_favorites"
     const val PREFS_LOCAL_LINK_FAVORITES = "local_link_favorites"

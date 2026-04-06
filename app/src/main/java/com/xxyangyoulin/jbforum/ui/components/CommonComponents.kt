@@ -2,15 +2,30 @@ package com.xxyangyoulin.jbforum.ui.components
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.xxyangyoulin.jbforum.AppColors
-import com.xxyangyoulin.jbforum.AppDimensions
+import com.xxyangyoulin.jbforum.ForumMessageStatus
 
 /**
  * 下拉刷新容器
@@ -21,6 +36,7 @@ fun RefreshContainer(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    indicatorTopPadding: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
     val pullState = rememberPullToRefreshState()
@@ -31,7 +47,9 @@ fun RefreshContainer(
         modifier = modifier,
         indicator = {
             PullToRefreshDefaults.Indicator(
-                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = indicatorTopPadding),
                 isRefreshing = refreshing,
                 state = pullState,
                 color = AppColors.AccentGreen
@@ -101,4 +119,54 @@ fun SelectablePill(
             style = MaterialTheme.typography.bodySmall
         )
     }
+}
+
+@Composable
+fun ForumMessageAction(
+    status: ForumMessageStatus,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = status.loggedIn,
+        modifier = modifier
+    ) {
+        BadgedBox(
+            badge = {
+                if (status.hasUnread) {
+                    Badge {
+                        if (status.unreadCount > 0) {
+                            Text(if (status.unreadCount > 99) "99+" else status.unreadCount.toString())
+                        }
+                    }
+                }
+            }
+        ) {
+            Icon(
+                Icons.Outlined.MailOutline,
+                contentDescription = null,
+                tint = if (status.loggedIn) AppColors.TitleText else AppColors.MutedText
+            )
+        }
+    }
+}
+
+@Composable
+fun StyledDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        containerColor = AppColors.CardBackground,
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
+        content = content
+    )
 }
