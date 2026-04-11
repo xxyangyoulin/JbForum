@@ -16,12 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material.icons.outlined.Image
@@ -31,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -58,41 +56,36 @@ import kotlin.math.roundToInt
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * 缩略图生成中的占位符
+ * 图片加载中的占位符（纯色背景 + 图标 + 文字）
  */
 @Composable
 fun ThumbnailGeneratingPlaceholder(
-    text: String = "缩略图生成中...",
+    text: String = "加载中...",
     modifier: Modifier = Modifier
 ) {
-    val shimmerAlpha by rememberInfiniteTransition(label = "image_placeholder")
-        .animateFloat(
-            initialValue = 0.45f,
-            targetValue = 0.85f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 900),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "image_placeholder_alpha"
-        )
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val bgColor = if (isLight) Color(0xFFE8EDF3) else Color(0xFF262624)
+    val contentColor = AppColors.MutedText
+
     Box(
-        modifier = modifier,
+        modifier = modifier.background(bgColor),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(8.dp)
         ) {
             Icon(
                 imageVector = Icons.Outlined.Image,
                 contentDescription = null,
-                tint = AppColors.MutedText.copy(alpha = shimmerAlpha),
+                tint = contentColor,
                 modifier = Modifier.height(28.dp)
             )
             Text(
                 text = text,
-                color = AppColors.MutedText.copy(alpha = shimmerAlpha),
-                style = MaterialTheme.typography.bodySmall
+                color = contentColor,
+                style = MaterialTheme.typography.labelSmall
             )
         }
     }
@@ -103,21 +96,27 @@ private fun LoadFailedPlaceholder(
     modifier: Modifier = Modifier,
     onRetry: () -> Unit
 ) {
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val bgColor = if (isLight) Color(0xFFE8EDF3) else Color(0xFF262624)
+    val contentColor = AppColors.MutedText
+
     Box(
-        modifier = modifier.clickable(onClick = onRetry),
+        modifier = modifier.background(bgColor).clickable(onClick = onRetry),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(8.dp)
         ) {
             Icon(
                 imageVector = Icons.Outlined.BrokenImage,
                 contentDescription = null,
-                tint = AppColors.MutedText.copy(alpha = 0.85f),
+                tint = contentColor,
                 modifier = Modifier.height(28.dp)
             )
-            Text(text = "点击重试", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)
+            Text(text = "加载失败", color = contentColor, style = MaterialTheme.typography.labelSmall)
+            Text(text = "点击重试", color = contentColor, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

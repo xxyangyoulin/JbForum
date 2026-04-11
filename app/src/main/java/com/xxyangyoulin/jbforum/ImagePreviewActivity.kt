@@ -85,6 +85,7 @@ data class PreviewImageItem(
     val imageRef: String,
     val sourceThreadTitle: String = "",
     val sourceThreadUrl: String = "",
+    val sourcePostId: String = "",
     val canFavorite: Boolean = true
 ) : Parcelable
 
@@ -133,6 +134,13 @@ class ImagePreviewActivity : ComponentActivity() {
                     imageLoader = imageLoader,
                     imageDownloadClient = imageDownloadClient,
                     onDismiss = { finish() },
+                    onReturnToPost = { postId ->
+                        setResult(
+                            RESULT_OK,
+                            Intent().putExtra(EXTRA_TARGET_POST_ID, postId)
+                        )
+                        finish()
+                    },
                     onRefreshFavorites = {
                         setResult(RESULT_OK, Intent().putExtra(EXTRA_REFRESH_FAVORITES, true))
                     },
@@ -158,6 +166,7 @@ class ImagePreviewActivity : ComponentActivity() {
         const val EXTRA_REFRESH_FAVORITES = "refresh_favorites"
         const val EXTRA_OPEN_THREAD_URL = "open_thread_url"
         const val EXTRA_OPEN_THREAD_TITLE = "open_thread_title"
+        const val EXTRA_TARGET_POST_ID = "target_post_id"
 
         fun createIntent(
             context: Context,
@@ -201,6 +210,7 @@ private fun ImagePreviewScreen(
     imageLoader: ImageLoader,
     imageDownloadClient: okhttp3.OkHttpClient,
     onDismiss: () -> Unit,
+    onReturnToPost: (String) -> Unit,
     onRefreshFavorites: () -> Unit,
     onOpenSourceThread: (String, String) -> Unit
 ) {
@@ -626,6 +636,17 @@ private fun ImagePreviewScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("查看原帖")
+                        }
+                    }
+                    if (image.sourcePostId.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                actionTargetIndex = null
+                                onReturnToPost(image.sourcePostId)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("返回原楼层")
                         }
                     }
                 }

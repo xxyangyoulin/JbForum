@@ -7,7 +7,8 @@ import kotlinx.coroutines.withContext
 
 data class CacheStats(
     val totalBytes: Long,
-    val favoriteBytes: Long
+    val favoriteBytes: Long,
+    val codeMetadataBytes: Long = 0L
 )
 
 object AppCacheManager {
@@ -32,9 +33,13 @@ object AppCacheManager {
                 File(context.cacheDir, AppConstants.CACHE_DIR_THREAD_DETAILS)
             )
             val favoriteBytes = favoriteDirs.sumOf(::directorySize)
+            val codeMetadataBytes = File(context.getDatabasePath("jb_forum.db").path).let { dbFile ->
+                if (dbFile.exists()) dbFile.length() else 0L
+            }
             CacheStats(
-                totalBytes = favoriteBytes + otherDirs.sumOf(::directorySize),
-                favoriteBytes = favoriteBytes
+                totalBytes = favoriteBytes + otherDirs.sumOf(::directorySize) + codeMetadataBytes,
+                favoriteBytes = favoriteBytes,
+                codeMetadataBytes = codeMetadataBytes
             )
         }
     }

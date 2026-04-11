@@ -5,6 +5,7 @@ import android.content.Context
 object LoginPersistence {
     private const val keyUsername = "username"
     private const val keyPassword = "password"
+    private const val keyUid = "uid"
 
     @Volatile
     private var appContext: Context? = null
@@ -28,12 +29,28 @@ object LoginPersistence {
             .apply()
     }
 
+    fun loadUid(): String {
+        val context = appContext ?: return ""
+        return context.getSharedPreferences(AppConstants.PREFS_LOGIN, Context.MODE_PRIVATE)
+            .getString(keyUid, "")
+            .orEmpty()
+    }
+
+    fun saveUid(uid: String) {
+        val context = appContext ?: return
+        context.getSharedPreferences(AppConstants.PREFS_LOGIN, Context.MODE_PRIVATE)
+            .edit()
+            .putString(keyUid, uid)
+            .apply()
+    }
+
     fun clear() {
         val context = appContext ?: return
         context.getSharedPreferences(AppConstants.PREFS_LOGIN, Context.MODE_PRIVATE)
             .edit()
             .remove(keyUsername)
             .remove(keyPassword)
+            .remove(keyUid)
             .apply()
     }
 }

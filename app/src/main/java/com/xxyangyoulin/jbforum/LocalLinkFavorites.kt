@@ -2,7 +2,10 @@ package com.xxyangyoulin.jbforum
 
 import android.content.Context
 import java.security.MessageDigest
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
@@ -14,6 +17,7 @@ object LocalLinkFavorites {
     private var appContext: Context? = null
     @Volatile
     private var dao: LinkFavoriteDao? = null
+    private val scrapeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -25,17 +29,15 @@ object LocalLinkFavorites {
         val dbDao = dao ?: return emptyList()
         return runBlocking {
             withContext(Dispatchers.IO) {
-                dbDao.loadAll().map {
-                    LocalFavoriteLink(
-                        id = it.id,
-                        value = it.value,
-                        type = it.type,
-                        savedAt = it.savedAt,
-                        sourceThreadTitle = it.sourceThreadTitle,
-                        sourceThreadUrl = it.sourceThreadUrl
-                    )
-                }
+                dbDao.loadAll().map(::toModel)
             }
+        }
+    }
+
+    suspend fun loadSuspend(): List<LocalFavoriteLink> {
+        val dbDao = dao ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            dbDao.loadAll().map(::toModel)
         }
     }
 
@@ -73,6 +75,15 @@ object LocalLinkFavorites {
                         sourceThreadTitle = item.sourceThreadTitle,
                         sourceThreadUrl = item.sourceThreadUrl
                     )
+                )
+            }
+        }
+        if (type == LinkCategory.CODE && MetaTubeConfig.isConfigured()) {
+            scrapeScope.launch {
+                CodeMetadataScraper.enqueue(
+                    codes = setOf(normalized),
+                    server = MetaTubeConfig.getServer(),
+                    token = MetaTubeConfig.getToken()
                 )
             }
         }
@@ -154,5 +165,16 @@ object LocalLinkFavorites {
         return MessageDigest.getInstance("SHA-1")
             .digest(value.toByteArray())
             .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun toModel(entity: LinkFavoriteEntity): LocalFavoriteLink {
+        return LocalFavoriteLink(
+            id = entity.id,
+            value = entity.value,
+            type = entity.type,
+            savedAt = entity.savedAt,
+            sourceThreadTitle = entity.sourceThreadTitle,
+            sourceThreadUrl = entity.sourceThreadUrl
+        )
     }
 }

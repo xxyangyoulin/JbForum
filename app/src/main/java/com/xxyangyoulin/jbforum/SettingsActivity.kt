@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -51,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -264,6 +266,13 @@ private fun SettingsScreen(
                         color = MutedText,
                         fontSize = 12.sp
                     )
+                    if (stats.codeMetadataBytes > 0) {
+                        Text(
+                            "番号元数据：${formatBytes(stats.codeMetadataBytes)}",
+                            color = MutedText,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
 
@@ -325,6 +334,16 @@ private fun SettingsScreen(
                             }
                         backupProcessing = false
                     }
+                }
+            )
+            SettingsDivider()
+            SettingsItem(
+                icon = Icons.Outlined.Feedback,
+                title = "问题反馈",
+                onClick = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/xxyangyoulin/JbForum/issues"))
+                    )
                 }
             )
         }
@@ -617,7 +636,15 @@ private fun SettingsSwitchItem(
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = AccentGreen,
+                checkedBorderColor = AccentGreen,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = CardBorder.copy(alpha = 0.75f),
+                uncheckedBorderColor = CardBorder
+            )
         )
     }
 }
@@ -638,7 +665,8 @@ internal fun UpdateResultDialog(
     latest: GitHubReleaseInfo,
     currentVersion: String,
     hasNewVersion: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    showSkipVersion: Boolean = false
 ) {
     val context = LocalContext.current
     val currentDisplayVersion = "v" + currentVersion.trim().removePrefix("v").removePrefix("V").ifBlank { "0.0.0" }
@@ -673,8 +701,18 @@ internal fun UpdateResultDialog(
         },
         dismissButton = {
             if (hasNewVersion) {
-                TextButton(onClick = onDismiss) {
-                    Text("取消")
+                Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+                    if (showSkipVersion) {
+                        TextButton(onClick = {
+                            GitHubUpdateChecker.skipVersion(latest.tagName)
+                            onDismiss()
+                        }) {
+                            Text("跳过此版本")
+                        }
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("取消")
+                    }
                 }
             }
         }

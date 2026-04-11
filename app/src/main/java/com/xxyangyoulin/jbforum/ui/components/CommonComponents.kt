@@ -13,9 +13,10 @@ import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -65,7 +67,7 @@ fun RefreshContainer(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = indicatorTopPadding),
-                containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
+                containerColor = Color.Transparent,
                 color = AppColors.AccentGreen
             )
         }
@@ -214,9 +216,8 @@ fun PagingFooterStatus(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ContainedLoadingIndicator(
-                    containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
-                    indicatorColor = AppColors.AccentGreen,
+                LoadingIndicator(
+                    color = AppColors.AccentGreen,
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 Text("加载中", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)
@@ -239,9 +240,8 @@ fun PagingFooterStatus(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ContainedLoadingIndicator(
-                    containerColor = AppColors.AccentGreen.copy(alpha = 0.18f),
-                    indicatorColor = AppColors.AccentGreen,
+                LoadingIndicator(
+                    color = AppColors.AccentGreen,
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 Text("加载中", color = AppColors.MutedText, style = MaterialTheme.typography.bodySmall)

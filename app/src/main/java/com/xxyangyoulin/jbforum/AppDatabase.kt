@@ -10,6 +10,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "link_favorites")
 data class LinkFavoriteEntity(
@@ -27,6 +29,20 @@ data class ThreadHistoryEntity(
     val id: String,
     val title: String,
     val viewedAt: Long
+)
+
+@Entity(tableName = "code_metadata")
+data class CodeMetadataEntity(
+    @PrimaryKey val code: String,
+    val provider: String,
+    val providerId: String,
+    val title: String,
+    val coverUrl: String,
+    val backdropUrl: String,
+    val thumbUrl: String,
+    val releaseDate: String,
+    val actorsCsv: String,
+    val updatedAt: Long
 )
 
 @Dao
@@ -63,18 +79,60 @@ interface ThreadHistoryDao {
     fun clearAll()
 }
 
+@Dao
+interface CodeMetadataDao {
+    @Query("SELECT * FROM code_metadata WHERE code IN (:codes)")
+    fun loadByCodes(codes: List<String>): List<CodeMetadataEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(item: CodeMetadataEntity)
+
+    @Query("DELETE FROM code_metadata WHERE code IN (:codes)")
+    fun deleteByCodes(codes: List<String>)
+
+    @Query("DELETE FROM code_metadata")
+    fun clearAll()
+}
+
 @Database(
-    entities = [LinkFavoriteEntity::class, ThreadHistoryEntity::class],
-    version = 1,
+    entities = [LinkFavoriteEntity::class, ThreadHistoryEntity::class, CodeMetadataEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun linkFavoriteDao(): LinkFavoriteDao
     abstract fun threadHistoryDao(): ThreadHistoryDao
+    abstract fun codeMetadataDao(): CodeMetadataDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `code_metadata` (
+                        `code` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `providerId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `coverUrl` TEXT NOT NULL,
+                        `backdropUrl` TEXT NOT NULL,
+                        `thumbUrl` TEXT NOT NULL,
+                        `releaseDate` TEXT NOT NULL,
+                        `actorsCsv` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`code`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `code_metadata` ADD COLUMN `backdropUrl` TEXT NOT NULL DEFAULT ''")
+            }
+        }
 
         fun get(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -82,7 +140,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "jb_forum.db"
-                ).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
             }
         }
     }

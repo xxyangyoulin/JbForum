@@ -292,7 +292,9 @@ internal fun ForumApp(viewModel: MainViewModel) {
                 .onSuccess { latest ->
                     GitHubUpdateChecker.recordCheckTime()
                     val currentVersion = readAppVersionName(context)
-                    if (GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)) {
+                    if (GitHubUpdateChecker.hasNewVersion(currentVersion, latest.tagName)
+                        && !GitHubUpdateChecker.isSkippedVersion(latest.tagName)
+                    ) {
                         autoHasNewVersion = true
                         autoUpdateInfo = latest
                     }
@@ -315,22 +317,30 @@ internal fun ForumApp(viewModel: MainViewModel) {
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         scrolledContainerColor = Color.Transparent
-                    ),
-                    modifier = Modifier.appTopBarHaze(hazeState),
-                    navigationIcon = {
-                        state.session?.uid
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let { uid ->
-                                IconButton(onClick = { context.startActivity(UserCenterActivity.createIntent(context, uid)) }) {
-                                    AuthorAvatar(
-                                        imageLoader = imageLoader,
-                                        imageUrl = state.forumMessageStatus.avatarUrl,
-                                        name = state.session?.username.orEmpty(),
-                                        size = 32.dp
-                                    )
+                ),
+                modifier = Modifier.appTopBarHaze(hazeState),
+                navigationIcon = {
+                    val isLoggedIn = state.forumMessageStatus.loggedIn
+                    val hasAvatarOrName = !state.forumMessageStatus.avatarUrl.isNullOrBlank() || !state.session?.username.isNullOrBlank()
+                    if (isLoggedIn && hasAvatarOrName) {
+                        val uid = state.session?.uid.orEmpty()
+                        IconButton(
+                            onClick = {
+                                if (uid.isNotBlank()) {
+                                    context.startActivity(UserCenterActivity.createIntent(context, uid))
                                 }
-                            }
-                    },
+                            },
+                            enabled = uid.isNotBlank()
+                        ) {
+                            AuthorAvatar(
+                                imageLoader = imageLoader,
+                                imageUrl = state.forumMessageStatus.avatarUrl,
+                                name = state.session?.username.orEmpty(),
+                                size = 32.dp
+                            )
+                        }
+                    }
+                },
                     title = {
                         Column {
                             Text(
@@ -541,7 +551,8 @@ internal fun ForumApp(viewModel: MainViewModel) {
                 latest = autoUpdateInfo!!,
                 currentVersion = readAppVersionName(context),
                 hasNewVersion = true,
-                onDismiss = { autoUpdateInfo = null }
+                onDismiss = { autoUpdateInfo = null },
+                showSkipVersion = true
             )
         }
     }

@@ -164,3 +164,16 @@ data class LocalFavoriteLink(
     val sourceThreadTitle: String = "",
     val sourceThreadUrl: String = ""
 )
+
+data class LocalCodeMetadata(
+    val code: String,
+    val provider: String,
+    val providerId: String,
+    val title: String,
+    val coverUrl: String,
+    val backdropUrl: String,
+    val thumbUrl: String,
+    val releaseDate: String,
+    val actors: List<String>,
+    val updatedAt: Long
+)

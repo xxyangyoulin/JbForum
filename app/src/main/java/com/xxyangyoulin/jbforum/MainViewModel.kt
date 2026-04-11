@@ -58,7 +58,22 @@ class MainViewModel(
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     init {
-        _state.update { it.copy(forumMessageStatus = MessageStatusStore.value()) }
+        val bootStatus = MessageStatusStore.value()
+        val cachedUsername = LoginPersistence.load().first
+        val cachedUid = LoginPersistence.loadUid()
+        _state.update {
+            it.copy(
+                forumMessageStatus = bootStatus,
+                session = when {
+                    it.session != null -> it.session
+                    bootStatus.loggedIn && cachedUsername.isNotBlank() -> UserSession(
+                        username = cachedUsername,
+                        uid = cachedUid
+                    )
+                    else -> null
+                }
+            )
+        }
         viewModelScope.launch {
             _state.collect { current ->
                 AppStateSnapshot.save(
@@ -76,9 +91,22 @@ class MainViewModel(
         viewModelScope.launch {
             MessageStatusStore.status.collect { status ->
                 _state.update {
+                    val fallbackSession = if (status.loggedIn && it.session == null) {
+                        val username = LoginPersistence.load().first
+                        val uid = LoginPersistence.loadUid()
+                        username
+                            .takeIf { name -> name.isNotBlank() }
+                            ?.let { name -> UserSession(username = name, uid = uid) }
+                    } else {
+                        null
+                    }
                     it.copy(
                         forumMessageStatus = status,
-                        session = if (!status.loggedIn) null else it.session
+                        session = when {
+                            !status.loggedIn -> null
+                            it.session != null -> it.session
+                            else -> fallbackSession
+                        }
                     )
                 }
             }
@@ -90,6 +118,7 @@ class MainViewModel(
         launchTask {
             _state.update { it.copy(loading = true, message = null) }
             val boards = repository.loadBoards()
+            repository.latestSession()?.let { LoginPersistence.saveUid(it.uid) }
             _state.update {
                 it.copy(
                     boards = boards,
@@ -106,6 +135,7 @@ class MainViewModel(
     fun refreshBoards() = launchTask {
         _state.update { it.copy(loading = true, message = null, selectedBoard = null, selectedThread = null, threadDetail = null, detectedLinks = emptyList(), userCenterVisible = false) }
         val boards = repository.loadBoards()
+        repository.latestSession()?.let { LoginPersistence.saveUid(it.uid) }
         _state.update {
             it.copy(
                 boards = boards,
@@ -264,6 +294,7 @@ class MainViewModel(
                 message = "已登录为 ${session.username}"
             )
         }
+        LoginPersistence.saveUid(session.uid)
         val current = state.value
         when {
             current.selectedThread != null -> openThread(current.selectedThread)
@@ -801,6 +832,9 @@ class MainViewModel(
 
     fun refreshSession() = launchTask {
         val session = repository.currentSession()
+        if (session != null) {
+            LoginPersistence.saveUid(session.uid)
+        }
         _state.update { it.copy(session = session, forumMessageStatus = repository.latestMessageStatus()) }
     }
 

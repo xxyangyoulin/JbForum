@@ -434,6 +434,7 @@ internal fun ThreadsActivityScreen(
                     onCompose = {
                         if (state.session != null) viewModel.prepareNewThread() else viewModel.prepareLogin()
                     },
+                    onBack = onBack,
                     modifier = Modifier.hazeSource(state = hazeState),
                     drawBehindTopBar = true
                 )
@@ -546,6 +547,7 @@ internal fun ThreadListScreen(
     onLoadMore: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
     onCompose: () -> Unit,
+    onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     drawBehindTopBar: Boolean = false
 ) {
@@ -553,6 +555,25 @@ internal fun ThreadListScreen(
     val isSearchResult = board.url.contains("search.php?mod=forum")
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
+    val recyclerViewHolder = remember { object { var recyclerView: RecyclerView? = null } }
+    val scrollToTopThresholdPx = with(density) { 100.dp.roundToPx() }
+
+    if (onBack != null) {
+        BackHandler {
+            val rv = recyclerViewHolder.recyclerView
+            if (rv != null && rv.computeVerticalScrollOffset() > scrollToTopThresholdPx) {
+                val lm = rv.layoutManager as? LinearLayoutManager
+                if (lm != null && lm.findFirstVisibleItemPosition() > 0) {
+                    lm.scrollToPositionWithOffset(0, 0)
+                } else {
+                    rv.smoothScrollToPosition(0)
+                }
+            } else {
+                onBack()
+            }
+        }
+    }
+
     val adapter = remember(
         board,
         imageLoader,
@@ -661,6 +682,7 @@ internal fun ThreadListScreen(
                 if (recyclerView.adapter !== adapter) {
                     recyclerView.adapter = adapter
                 }
+                recyclerViewHolder.recyclerView = recyclerView
                 adapter.recyclerView = recyclerView
                 adapter.onBeforeOpenThread = {
                     val lm = recyclerView.layoutManager as? LinearLayoutManager

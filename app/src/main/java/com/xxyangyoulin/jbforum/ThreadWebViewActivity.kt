@@ -305,12 +305,13 @@ private fun ThreadWebViewScreen(
             }
         }
     ) { padding ->
-        ThreadWebViewContent(
-            padding = padding,
-            url = url,
-            restoredState = restoredState,
-            onWebViewReady = onWebViewReady,
-            onFileChooserRequest = onFileChooserRequest,
+                ThreadWebViewContent(
+                    padding = padding,
+                    url = url,
+                    sourceTitle = pageTitle,
+                    restoredState = restoredState,
+                    onWebViewReady = onWebViewReady,
+                    onFileChooserRequest = onFileChooserRequest,
             onProgressChanged = { progress = it },
             onPageTitleChanged = { received ->
                 if (received.isNotBlank()) {
@@ -375,6 +376,7 @@ private fun ThreadWebViewScreen(
 private fun ThreadWebViewContent(
     padding: PaddingValues,
     url: String,
+    sourceTitle: String,
     restoredState: Bundle?,
     onWebViewReady: (WebView) -> Unit,
     onFileChooserRequest: (WebChromeClient.FileChooserParams?, ValueCallback<Array<Uri>>) -> Unit,
@@ -390,7 +392,8 @@ private fun ThreadWebViewContent(
             .padding(padding)
             .imePadding(),
         factory = { context ->
-            WebView(context).apply {
+            FavoriteSelectionWebView(context).apply {
+                setFavoriteSource(sourceTitle, url)
                 ThreadWebViewActivity.injectAppCookiesIntoWebView(url)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 settings.userAgentString = ForumApiClient().desktopUserAgent
@@ -479,6 +482,11 @@ private fun ThreadWebViewContent(
                     loadUrl(url, ThreadWebViewActivity.webHeaders())
                 }
             }
+        },
+        update = { webView ->
+            if (webView is FavoriteSelectionWebView) {
+                webView.setFavoriteSource(sourceTitle, url)
+            }
         }
     )
 }
@@ -511,6 +519,105 @@ private fun enqueueWebDownload(
     val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     downloadManager.enqueue(request)
     android.widget.Toast.makeText(context, "已加入下载队列", android.widget.Toast.LENGTH_SHORT).show()
+}
+
+private class FavoriteSelectionWebView(context: Context) : WebView(context) {
+    private val favoriteId = 0x7f0f4321
+    private var sourceTitle: String = ""
+    private var sourceUrl: String = ""
+    private var selectedTextCache: String = ""
+    private var selectedTypeCache: String? = null
+    private var skipNextInvalidate = false
+
+    fun setFavoriteSource(title: String, url: String) {
+        sourceTitle = title
+        sourceUrl = url
+    }
+
+    override fun startActionMode(callback: android.view.ActionMode.Callback?): android.view.ActionMode? {
+        return super.startActionMode(wrapCallback(callback))
+    }
+
+    override fun startActionMode(callback: android.view.ActionMode.Callback?, type: Int): android.view.ActionMode? {
+        return super.startActionMode(wrapCallback(callback), type)
+    }
+
+    private fun wrapCallback(original: android.view.ActionMode.Callback?): android.view.ActionMode.Callback {
+        return object : android.view.ActionMode.Callback {
+            private fun decodeJsString(raw: String): String {
+                return runCatching {
+                    org.json.JSONObject("{\"v\":$raw}").getString("v")
+                }.getOrElse { raw.trim('"') }
+            }
+
+            private fun updateFavoriteItem(mode: android.view.ActionMode?, menu: android.view.Menu?) {
+                evaluateJavascript(
+                    "(function(){return window.getSelection ? window.getSelection().toString() : ''})();"
+                ) { raw ->
+                    val selected = decodeJsString(raw).trim()
+                    val detectedType = ThreadLinkRecognizer.detectTypeForSelection(selected)
+                    selectedTextCache = selected
+                    selectedTypeCache = detectedType
+                    if (detectedType != null) {
+                        val title = "收藏$detectedType"
+                        val item = menu?.findItem(favoriteId)
+                            ?: menu?.add(android.view.Menu.NONE, favoriteId, android.view.Menu.NONE, title)
+                        item?.title = title
+                    } else {
+                        menu?.removeItem(favoriteId)
+                    }
+                    if (mode != null) {
+                        skipNextInvalidate = true
+                        mode.invalidate()
+                    }
+                }
+            }
+
+            override fun onCreateActionMode(mode: android.view.ActionMode?, menu: android.view.Menu?): Boolean {
+                val created = original?.onCreateActionMode(mode, menu) ?: true
+                updateFavoriteItem(mode, menu)
+                return created
+            }
+
+            override fun onPrepareActionMode(mode: android.view.ActionMode?, menu: android.view.Menu?): Boolean {
+                val prepared = original?.onPrepareActionMode(mode, menu) ?: false
+                if (skipNextInvalidate) {
+                    skipNextInvalidate = false
+                    return prepared
+                }
+                updateFavoriteItem(mode, menu)
+                return prepared
+            }
+
+            override fun onActionItemClicked(mode: android.view.ActionMode?, item: android.view.MenuItem?): Boolean {
+                if (item?.itemId == favoriteId) {
+                    val selected = selectedTextCache
+                    val detectedType = selectedTypeCache
+                    if (selected.isNotBlank() && detectedType != null) {
+                        runCatching {
+                            LocalLinkFavorites.add(
+                                value = selected,
+                                type = detectedType,
+                                sourceThreadTitle = sourceTitle,
+                                sourceThreadUrl = sourceUrl
+                            )
+                        }.onSuccess {
+                            android.widget.Toast.makeText(context, "已收藏$detectedType", android.widget.Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            android.widget.Toast.makeText(context, it.message ?: "收藏失败", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    mode?.finish()
+                    return true
+                }
+                return original?.onActionItemClicked(mode, item) ?: false
+            }
+
+            override fun onDestroyActionMode(mode: android.view.ActionMode?) {
+                original?.onDestroyActionMode(mode)
+            }
+        }
+    }
 }
 
 private fun WebView.longPressTarget(): WebLongPressTarget? {

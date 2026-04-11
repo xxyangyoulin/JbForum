@@ -16,6 +16,7 @@ object AppConstants {
     const val PREFS_LOGIN = "forum_login"
     const val PREFS_MESSAGE_STATUS = "forum_message_status"
     const val PREFS_SETTINGS = "forum_settings"
+    const val PREFS_METATUBE = "metatube_settings"
     const val PREFS_LOCAL_FAVORITES = "local_image_favorites"
     const val PREFS_LOCAL_LINK_FAVORITES = "local_link_favorites"
     const val PREFS_THREAD_HISTORY = "thread_browse_history"
@@ -27,6 +28,7 @@ object AppConstants {
     const val CACHE_DIR_THREAD_ORIGINALS = "thread_image_originals"
     const val CACHE_DIR_THREAD_THUMBNAILS = "thread_image_thumbnails"
     const val CACHE_DIR_THREAD_DETAILS = "thread_detail_cache"
+    const val CACHE_DIR_METATUBE_IMAGES = "metatube_images"
 
     // 图片压缩阈值 (200KB)
     const val IMAGE_COMPRESS_THRESHOLD_BYTES = 200L * 1024L

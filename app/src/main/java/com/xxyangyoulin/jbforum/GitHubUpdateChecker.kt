@@ -18,6 +18,7 @@ object GitHubUpdateChecker {
     private const val latestReleaseApi = "https://api.github.com/repos/xxyangyoulin/JbForum/releases/latest"
     private const val PREFS_NAME = "github_update_prefs"
     private const val KEY_LAST_CHECK_TIME = "last_check_time"
+    private const val KEY_SKIPPED_VERSION = "skipped_version"
     private const val MIN_INTERVAL_MS = 20 * 60 * 60 * 1000L // 20 hours
 
     private lateinit var prefs: android.content.SharedPreferences
@@ -35,6 +36,21 @@ object GitHubUpdateChecker {
     fun recordCheckTime() {
         if (!::prefs.isInitialized) return
         prefs.edit().putLong(KEY_LAST_CHECK_TIME, System.currentTimeMillis()).apply()
+    }
+
+    fun isSkippedVersion(tagName: String): Boolean {
+        if (!::prefs.isInitialized) return false
+        return prefs.getString(KEY_SKIPPED_VERSION, null) == normalize(tagName)
+    }
+
+    fun skipVersion(tagName: String) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putString(KEY_SKIPPED_VERSION, normalize(tagName)).apply()
+    }
+
+    fun clearSkippedVersion() {
+        if (!::prefs.isInitialized) return
+        prefs.edit().remove(KEY_SKIPPED_VERSION).apply()
     }
 
     suspend fun latestRelease(): GitHubReleaseInfo = withContext(Dispatchers.IO) {

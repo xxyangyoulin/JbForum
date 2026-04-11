@@ -58,6 +58,9 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -231,10 +234,15 @@ internal fun ThreadDetailActivityScreen(
     var replyDialogOpen by remember { mutableStateOf(false) }
     var detailMenuExpanded by remember { mutableStateOf(false) }
     var hideFloatingButtons by remember { mutableStateOf(false) }
+    var pendingScrollPid by remember { mutableStateOf<String?>(null) }
     val imagePreviewLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.let { data ->
             if (data.getBooleanExtra(ImagePreviewActivity.EXTRA_REFRESH_FAVORITES, false)) {
                 viewModel.refreshLocalFavorites()
+            }
+            val targetPostId = data.getStringExtra(ImagePreviewActivity.EXTRA_TARGET_POST_ID).orEmpty()
+            if (targetPostId.isNotBlank() && state.threadDetail?.posts?.any { it.pid == targetPostId } == true) {
+                pendingScrollPid = targetPostId
             }
             val threadUrl = data.getStringExtra(ImagePreviewActivity.EXTRA_OPEN_THREAD_URL).orEmpty()
             if (threadUrl.isNotBlank()) {
@@ -257,6 +265,7 @@ internal fun ThreadDetailActivityScreen(
     var linksDialogOpen by remember { mutableStateOf(false) }
     var historyPanelOpen by remember { mutableStateOf(false) }
     var historyItems by remember { mutableStateOf(ThreadBrowseHistory.load()) }
+    var searchDialogOpen by remember { mutableStateOf(false) }
     val handleBack = onBack
     val openUserCenter: (String) -> Unit = { uid ->
         context.startActivity(UserCenterActivity.createIntent(context, uid))
@@ -317,7 +326,6 @@ internal fun ThreadDetailActivityScreen(
     val topBarAvatarUrl = thread.authorAvatarUrl ?: topBarPost?.authorAvatarUrl
     val topBarAuthor = thread.author.ifBlank { topBarDetail?.author.orEmpty() }
     val topBarPublishedAt = thread.publishedAt.ifBlank { topBarDetail?.publishedAt.orEmpty() }
-    var pendingScrollPid by remember { mutableStateOf<String?>(null) }
     val hazeState = remember { HazeState() }
 
     Scaffold(
@@ -400,6 +408,14 @@ internal fun ThreadDetailActivityScreen(
                             onDismissRequest = { detailMenuExpanded = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("搜索") },
+                                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                                onClick = {
+                                    detailMenuExpanded = false
+                                    searchDialogOpen = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("浏览历史") },
                                 leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) },
                                 onClick = {
@@ -427,6 +443,34 @@ internal fun ThreadDetailActivityScreen(
                                             )
                                         )
                                     }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("本地收藏") },
+                                leadingIcon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) },
+                                onClick = {
+                                    detailMenuExpanded = false
+                                    context.startActivity(LocalFavoritesActivity.createIntent(context))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("个人中心") },
+                                leadingIcon = { Icon(Icons.Outlined.AccountCircle, contentDescription = null) },
+                                onClick = {
+                                    detailMenuExpanded = false
+                                    val uid = state.threadDetail?.authorUid
+                                    if (!uid.isNullOrBlank()) {
+                                        context.startActivity(UserCenterActivity.createIntent(context, uid))
+                                    }
+                                },
+                                enabled = state.threadDetail?.authorUid?.isNotBlank() == true
+                            )
+                            DropdownMenuItem(
+                                text = { Text("设置") },
+                                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                                onClick = {
+                                    detailMenuExpanded = false
+                                    context.startActivity(Intent(context, SettingsActivity::class.java))
                                 }
                             )
                         }
@@ -515,18 +559,10 @@ internal fun ThreadDetailActivityScreen(
                     }
                 },
                 onOpenImage = { images, index, launchSource ->
-                    val sourceThread = state.selectedThread
                     imagePreviewLauncher.launch(
                         ImagePreviewActivity.createIntent(
                             context = context,
-                            images = images.map {
-                                PreviewImageItem(
-                                    imageRef = it,
-                                    sourceThreadTitle = sourceThread?.title.orEmpty(),
-                                    sourceThreadUrl = sourceThread?.url.orEmpty(),
-                                    canFavorite = true
-                                )
-                            },
+                            images = images,
                             initialIndex = index,
                             launchSource = launchSource
                         ),
@@ -606,6 +642,16 @@ internal fun ThreadDetailActivityScreen(
         }
     )
 
+    if (searchDialogOpen) {
+        SearchDialog(
+            onDismiss = { searchDialogOpen = false },
+            onSearch = {
+                searchDialogOpen = false
+                context.startActivity(ThreadsActivity.createSearchIntent(context, it))
+            }
+        )
+    }
+
 
     if (replyDialogOpen && state.threadDetail?.replyAction != null) {
         QuickReplyDialog(
@@ -664,7 +710,7 @@ internal fun ThreadDetailScreen(
     onRefresh: () -> Unit,
     onOpenUserCenter: (String) -> Unit,
     onOpenLink: (String, String) -> Unit,
-    onOpenImage: (List<String>, Int, PreviewLaunchSource?) -> Unit,
+    onOpenImage: (List<PreviewImageItem>, Int, PreviewLaunchSource?) -> Unit,
     onLoadMoreReplies: () -> Unit,
     onNearBottomChanged: (Boolean) -> Unit,
     onRemark: (PostItem) -> Unit,
@@ -679,6 +725,22 @@ internal fun ThreadDetailScreen(
         with(density) {
             (configuration.screenWidthDp.dp - 68.dp).roundToPx()
         }
+    }
+    val imageRefToPostId = remember(detail.posts) {
+        buildMap<String, String> {
+            detail.posts.forEach { post ->
+                post.contentBlocks.forEach { block ->
+                    block.imageUrl?.let { ref ->
+                        if (!containsKey(ref)) put(ref, post.pid)
+                    }
+                }
+            }
+        }
+    }
+    val allThreadImageRefs = remember(detail.posts) {
+        detail.posts
+            .flatMap { post -> post.contentBlocks.mapNotNull { block -> block.imageUrl } }
+            .distinct()
     }
     val segments = remember(detail.posts) { splitPostSegments(detail.posts) }
     val segmentHeights = remember { mutableStateMapOf<String, Int>() }
@@ -764,6 +826,12 @@ internal fun ThreadDetailScreen(
                 val shape = RoundedCornerShape(0.dp)
                 val segKey = "${segment.postId}-${segment.segmentIndex}"
                 val cachedHeight = segmentHeights[segKey]
+                val segmentContainsImage = when (segment) {
+                    is PostSegment.Whole -> segment.post.contentBlocks.any { it.imageUrl != null }
+                    is PostSegment.First -> segment.blocks.any { it.imageUrl != null }
+                    is PostSegment.Middle -> segment.blocks.any { it.imageUrl != null }
+                    is PostSegment.Tail -> segment.blocks.any { it.imageUrl != null }
+                }
                 val highlightAlpha by animateFloatAsState(
                     targetValue = if (segment.postId == highlightedPostId) 1f else 0f,
                     animationSpec = tween(durationMillis = 180),
@@ -774,7 +842,9 @@ internal fun ThreadDetailScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            cachedHeight?.let { Modifier.heightIn(min = with(LocalDensity.current) { it.toDp() }) }
+                            cachedHeight
+                                ?.takeIf { !segmentContainsImage }
+                                ?.let { Modifier.heightIn(min = with(LocalDensity.current) { it.toDp() }) }
                                 ?: Modifier
                         )
                         .onSizeChanged { segmentHeights[segKey] = it.height }
@@ -800,6 +870,8 @@ internal fun ThreadDetailScreen(
                                     PostContentBlocks(
                                         post = segment.post,
                                         blocks = segment.post.contentBlocks,
+                                        allThreadImageRefs = allThreadImageRefs,
+                                        imageRefToPostId = imageRefToPostId,
                                         imageLoader = imageLoader,
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
@@ -824,6 +896,8 @@ internal fun ThreadDetailScreen(
                                     PostContentBlocks(
                                         post = segment.post,
                                         blocks = segment.blocks,
+                                        allThreadImageRefs = allThreadImageRefs,
+                                        imageRefToPostId = imageRefToPostId,
                                         imageLoader = imageLoader,
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
@@ -843,6 +917,8 @@ internal fun ThreadDetailScreen(
                                     PostContentBlocks(
                                         post = segment.post,
                                         blocks = segment.blocks,
+                                        allThreadImageRefs = allThreadImageRefs,
+                                        imageRefToPostId = imageRefToPostId,
                                         imageLoader = imageLoader,
                                         imageDownloadClient = imageDownloadClient,
                                         detailImageResizeWidthPx = detailImageResizeWidthPx,
@@ -863,6 +939,8 @@ internal fun ThreadDetailScreen(
                                         PostContentBlocks(
                                             post = segment.post,
                                             blocks = segment.blocks,
+                                            allThreadImageRefs = allThreadImageRefs,
+                                            imageRefToPostId = imageRefToPostId,
                                             imageLoader = imageLoader,
                                             imageDownloadClient = imageDownloadClient,
                                             detailImageResizeWidthPx = detailImageResizeWidthPx,
@@ -932,19 +1010,20 @@ internal fun PostHeader(
 internal fun PostContentBlocks(
     post: PostItem,
     blocks: List<PostContentBlock>,
+    allThreadImageRefs: List<String>,
+    imageRefToPostId: Map<String, String>,
     imageLoader: ImageLoader,
     imageDownloadClient: okhttp3.OkHttpClient,
     detailImageResizeWidthPx: Int,
     imageAspectRatios: SnapshotStateMap<String, Float>,
     onOpenLink: (String, String) -> Unit,
-    onOpenImage: (List<String>, Int, PreviewLaunchSource?) -> Unit,
+    onOpenImage: (List<PreviewImageItem>, Int, PreviewLaunchSource?) -> Unit,
     onFavoriteText: (String, String?) -> Unit,
     sourceThreadTitle: String,
     sourceThreadUrl: String
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val orderedImages = remember(post.pid) { post.contentBlocks.mapNotNull { it.imageUrl } }
     val failedImages = remember(post.pid) { mutableStateMapOf<String, Boolean>() }
     var actionImageUrl by remember(post.pid) { mutableStateOf<String?>(null) }
     var detectedMenuLink by remember(post.pid) { mutableStateOf<String?>(null) }
@@ -997,6 +1076,7 @@ internal fun PostContentBlocks(
                     style = MaterialTheme.typography.bodyLarge,
                     color = TitleText,
                     onFavorite = onFavoriteText,
+                    favoriteOnlyWhenRecognized = true,
                     onDetectedLinkAction = { value, type ->
                         detectedMenuLink = value
                         detectedMenuType = type
@@ -1029,7 +1109,7 @@ internal fun PostContentBlocks(
             var layoutCoordinates by remember(imageUrl) { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
             val cachedRatio = imageAspectRatios[imageUrl]
             val isFailed = failedImages[imageUrl] ?: ThreadImageCache.isFailed(imageUrl)
-            val previewImageRefs = orderedImages.filterNot { failedImages[it] ?: ThreadImageCache.isFailed(it) }
+            val previewImageRefs = allThreadImageRefs.filterNot { ThreadImageCache.isFailed(it) }
             CachedRemoteDisplayImage(
                 imageRef = imageUrl,
                 imageLoader = imageLoader,
@@ -1047,6 +1127,15 @@ internal fun PostContentBlocks(
                         onClick = {
                             val previewIndex = previewImageRefs.indexOf(imageUrl)
                             if (previewIndex >= 0) {
+                                val previewImages = previewImageRefs.map { ref ->
+                                    PreviewImageItem(
+                                        imageRef = ThreadImageCache.previewRef(ref),
+                                        sourceThreadTitle = sourceThreadTitle,
+                                        sourceThreadUrl = sourceThreadUrl,
+                                        sourcePostId = imageRefToPostId[ref].orEmpty(),
+                                        canFavorite = true
+                                    )
+                                }
                                 val launchSource = layoutCoordinates?.let { coordinates ->
                                     val bounds = coordinates.boundsInWindow()
                                     PreviewLaunchSource(
@@ -1057,7 +1146,7 @@ internal fun PostContentBlocks(
                                     )
                                 }
                                 onOpenImage(
-                                    previewImageRefs.map(ThreadImageCache::previewRef),
+                                    previewImages,
                                     previewIndex,
                                     launchSource
                                 )
@@ -1083,6 +1172,11 @@ internal fun PostContentBlocks(
     if (detectedMenuLink != null) {
         val menuLink = detectedMenuLink.orEmpty()
         val menuLabel = detectedMenuLabel.orEmpty()
+        val labelDetectedType = if (menuLabel.isNotBlank()) {
+            ThreadLinkRecognizer.detectTypeForSelection(menuLabel)
+        } else {
+            null
+        }
         ForumLinkActionDialog(
             link = menuLink,
             type = detectedMenuType,
@@ -1105,7 +1199,9 @@ internal fun PostContentBlocks(
                 detectedMenuLabel = null
             },
             onFavorite = {
-                onFavoriteText(menuLink, detectedMenuType)
+                val favoriteValue = if (labelDetectedType == "番号") menuLabel else menuLink
+                val favoriteType = if (labelDetectedType == "番号") labelDetectedType else detectedMenuType
+                onFavoriteText(favoriteValue, favoriteType)
                 detectedMenuLink = null
                 detectedMenuType = null
                 detectedMenuLabel = null
